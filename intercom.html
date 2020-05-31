@@ -57,6 +57,13 @@ License: MIT
             line-height: 20px;
             vertical-align: middle;
         }
+
+
+        #user-list audio {
+            display: none !important;
+        }
+
+
         #user-list .light {
             width: 14px;
             height: 14px;
@@ -65,7 +72,7 @@ License: MIT
             background-color: #ccc;
         }
         #user-list .light.on {
-            background-color: #cfc;
+            background-color: #afa;
         }
 
 
@@ -118,6 +125,7 @@ License: MIT
     <input id="name-input" type="text" placeholder="Enter User Name"/>
     <ul id="user-list">
         <li class="user-item" data-type="template">
+            <audio autoplay></audio>
             <span class="light"></span>
             <span class="toggle"></span>
             <span class="name">UserName</span>
@@ -126,37 +134,59 @@ License: MIT
     </ul>
 
 
-    <script>
+    <script>(async () => {
         "use strict";
 
         let users = ['User1', 'User2']
+        let audioStream = await prepareInputAudioStream()
+        disableAudioTracks(audioStream)
+        Object.assign(this, prepareUserInterface())
+        let userItems = updateUserItems(users)
+        Object.assign(this, { users, audioStream, userItems })
 
-        const nameInput = document.querySelector('#name-input')
-        const userList  = document.querySelector('#user-list')
-        const templates = {
-            userItem: userList.querySelector('.user-item[data-type="template"]')
+        if (audioStream) {
+            userItems.forEach(userItem => {
+                let { audio, button } = userItem
+                let stream = audioStream.clone()
+                audio.srcObject = stream
+                button.onpress   = () => enableAudioTracks(stream)
+                button.onrelease = () => disableAudioTracks(stream)
+            })
         }
-        Object.keys(templates).forEach(k => { templates[k].remove() });
-
-
-        let userItems = updateUserItems()
 
 
         // =[ UI ]============================================================
 
+
+        function prepareUserInterface() {
+            let nameInput = document.querySelector('#name-input')
+            let userList  = document.querySelector('#user-list')
+            let templates = {
+                userItem: userList.querySelector('.user-item[data-type="template"]')
+            }
+            Object.keys(templates).forEach(k => { templates[k].remove() })
+            let updateUserItems = userNames => _updateUserItems(userNames, userList, templates.userItem)
+
+            return {
+                templates, nameInput, userList,
+                updateUserItems
+            }
+        }
+
         
-        function updateUserItems(userNames) {
+        function _updateUserItems(userNames, userList, userItemTemplate) {
             userList.innerHTML = ''
-            return users
-                .map(userName => createUserItem(userName))
+            return (userNames || [])
+                .map(userName => createUserItem(userItemTemplate, userName))
                 .map(userItem => (userList.appendChild(userItem), userItem))
         }
 
 
-        function createUserItem(userName) {
-            let userItem = templates.userItem.cloneNode(true)
+        function createUserItem(template, userName) {
+            let userItem = template.cloneNode(true)
             delete userItem.dataset.type
 
+            let audio  = userItem.querySelector('audio')
             let name   = userItem.querySelector('.name')
             let button = userItem.querySelector('.button')
             let toggle = userItem.querySelector('.toggle')
@@ -165,9 +195,9 @@ License: MIT
             name.innerHTML     = userName
 
             toggle.isPressed   = function() { return this.classList.contains('pressed') }
-            button.onmousedown = function() { this.classList.add('pressed') }
+            button.onmousedown = function() { this.classList.add('pressed'); if (this.onpress) this.onpress() }
             button.onmouseup   =
-            button.onmouseout  = function() { this.classList.remove('pressed') }
+            button.onmouseout  = function() { this.classList.remove('pressed'); if (this.onrelease) this.onrelease() }
 
             toggle.isEnabled   = function() { return this.classList.contains('on') }
             toggle.enable      = function() { this.classList.add('on') }
@@ -182,12 +212,31 @@ License: MIT
             light.flash        = function() { this.enable(); this._flashInterval = setInterval(() => this.toggle(), 1000) }
             light.cancelFlash  = function() { clearInterval(this._flashInterval); delete this._flashInterval; this.disable() }
 
-            Object.assign(userItem, { name, button, toggle, light })
+            Object.assign(userItem, { audio, name, button, toggle, light })
             
             return userItem
         }
-        
-    </script>
+
+
+        // =[ Audio ]=========================================================
+
+
+        async function prepareInputAudioStream() {
+            return navigator.mediaDevices.getUserMedia({ audio: true })
+                .catch(error => { console.error(error) })
+        }
+
+
+        function enableAudioTracks(audioStream, enable=true) {
+            if (!audioStream) return
+            audioStream.getAudioTracks().forEach(audioTrack => audioTrack.enabled = enable)
+        }
+
+
+        function disableAudioTracks(audioStream) {
+            enableAudioTracks(audioStream, false)
+        }
+    })()</script>
 
 </body>
 </html>
