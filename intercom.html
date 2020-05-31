@@ -16,32 +16,46 @@ License: MIT
     <style>
         * {
             font-family: Arial, Helvetica, sans-serif;
+            user-select: none;
+        }
+
+
+        [data-type="template"] {
+            display: none !important;
         }
 
 
         #name-input {
+            display: block;
             outline: none;
             padding: 0;
             border: 0;
             border-bottom: 1px solid #ccc;
             font-size: 16px;
+            user-select: text;
         }
         
 
         #user-list {
+            display: inline-block;
             list-style: none;
             margin: 0;
             padding: 0;
             font-size: 16px;
             margin: 10px 0;
         }
-        #user-list li >* {
+        #user-list li:not(:last-child) {
+            margin-bottom: 10px;
+        }
+        #user-list .user-item {
+            display: block;
+            position: relative;
+            padding-right: 55px;
+        }
+        #user-list .user-item >* {
             display: inline-block;
             line-height: 20px;
             vertical-align: middle;
-        }
-        #user-list li:not(:first-child) {
-            margin-top: 5px;
         }
         #user-list .light {
             width: 14px;
@@ -55,7 +69,7 @@ License: MIT
         }
 
 
-        #user-list .switch::before {
+        #user-list .toggle::before {
             display: inline-block;
             content: "Off";
             width: 50px;
@@ -63,13 +77,15 @@ License: MIT
             background-color: #444;
             text-align: center;
         }
-        #user-list .switch.on::before {
+        #user-list .toggle.on::before {
             content: "on";
             background-color: #f00;
         }
 
 
         #user-list .button {
+            position: absolute;
+            right: 25px;
             width: 20px;
             height: 20px;
             border-radius: 20px;
@@ -101,13 +117,77 @@ License: MIT
 
     <input id="name-input" type="text" placeholder="Enter User Name"/>
     <ul id="user-list">
-        <li>
-            <span class="light off"></span>
-            <span class="switch off"></span>
+        <li class="user-item" data-type="template">
+            <span class="light"></span>
+            <span class="toggle"></span>
             <span class="name">UserName</span>
             <span class="button"></span>
         </li>
-    </list>
+    </ul>
+
+
+    <script>
+        "use strict";
+
+        let users = ['User1', 'User2']
+
+        const nameInput = document.querySelector('#name-input')
+        const userList  = document.querySelector('#user-list')
+        const templates = {
+            userItem: userList.querySelector('.user-item[data-type="template"]')
+        }
+        Object.keys(templates).forEach(k => { templates[k].remove() });
+
+
+        let userItems = updateUserItems()
+
+
+        // =[ UI ]============================================================
+
+        
+        function updateUserItems(userNames) {
+            userList.innerHTML = ''
+            return users
+                .map(userName => createUserItem(userName))
+                .map(userItem => (userList.appendChild(userItem), userItem))
+        }
+
+
+        function createUserItem(userName) {
+            let userItem = templates.userItem.cloneNode(true)
+            delete userItem.dataset.type
+
+            let name   = userItem.querySelector('.name')
+            let button = userItem.querySelector('.button')
+            let toggle = userItem.querySelector('.toggle')
+            let light  = userItem.querySelector('.light')
+
+            name.innerHTML     = userName
+
+            toggle.isPressed   = function() { return this.classList.contains('pressed') }
+            button.onmousedown = function() { this.classList.add('pressed') }
+            button.onmouseup   =
+            button.onmouseout  = function() { this.classList.remove('pressed') }
+
+            toggle.isEnabled   = function() { return this.classList.contains('on') }
+            toggle.enable      = function() { this.classList.add('on') }
+            toggle.disable     = function() { this.classList.remove('on') }
+            toggle.toggle      = function() { this.isEnabled() ? this.disable() : this.enable() }
+            
+            light.isEnabled    = function() { return this.classList.contains('on') }
+            light.enable       = function() { this.classList.add('on') }
+            light.disable      = function() { this.classList.remove('on') }
+            light.toggle       = function() { this.isEnabled() ? this.disable() : this.enable() }
+            light.isFlashing   = function() { return !!this._flashInterval }
+            light.flash        = function() { this.enable(); this._flashInterval = setInterval(() => this.toggle(), 1000) }
+            light.cancelFlash  = function() { clearInterval(this._flashInterval); delete this._flashInterval; this.disable() }
+
+            Object.assign(userItem, { name, button, toggle, light })
+            
+            return userItem
+        }
+        
+    </script>
 
 </body>
 </html>
