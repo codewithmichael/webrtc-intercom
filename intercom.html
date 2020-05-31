@@ -1,0 +1,113 @@
+<!--
+Project: WebRTC Intercom
+Created: 2020.05.31
+Author:  Michael Spencer <code.with.michael@gmail.com>
+License: MIT
+-->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Intercom</title>
+    <script>
+        "use strict";
+        const DEBUG_LOGGING = true
+    </script>
+    <style>
+        * {
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+
+        #name-input {
+            outline: none;
+            padding: 0;
+            border: 0;
+            border-bottom: 1px solid #ccc;
+            font-size: 16px;
+        }
+        
+
+        #user-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        #user-list li >* {
+            display: inline-block;
+            line-height: 20px;
+            vertical-align: middle;
+        }
+        #user-list li:not(:first-child) {
+            margin-top: 5px;
+        }
+        #user-list .light {
+            width: 14px;
+            height: 14px;
+            border-radius: 14px;
+            border: 1px solid #ccc;
+            background-color: #ccc;
+        }
+        #user-list .light.on {
+            background-color: #cfc;
+        }
+
+
+        #user-list .switch::before {
+            display: inline-block;
+            content: "Off";
+            width: 50px;
+            color: #fff;
+            background-color: #444;
+            text-align: center;
+        }
+        #user-list .switch.on::before {
+            content: "on";
+            background-color: #f00;
+        }
+
+
+        #user-list .button {
+            width: 20px;
+            height: 20px;
+            border-radius: 20px;
+            border: 1px solid #888;
+            background-color: #888;
+            box-shadow: inset 2px 2px 3px -3px #fff;
+        }
+        #user-list .button.pressed {
+            box-shadow: inset 2px 2px 3px -2px #000;
+        }
+        #user-list .button::before {
+            display: inline-block;
+            position: relative;
+            content: "talk";
+            font-size: 10px;
+            line-height: 24px;
+            height: 24px;
+            top: -3px;
+            left: -3px;
+            border: 1px solid #ccc;
+            border-radius: 20px 0 0 20px;
+            background-color: #eee;
+            padding: 0 5px 0 26px;
+            z-index: -1;
+        }
+    </style>
+</head>
+<body>
+
+    <input id="name-input" type="text" placeholder="Enter User Name"/>
+    <ul id="user-list">
+        <li>
+            <span class="light off"></span>
+            <span class="switch off"></span>
+            <span class="name">UserName</span>
+            <span class="button"></span>
+        </li>
+    </list>
+
+</body>
+</html>
