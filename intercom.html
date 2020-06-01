@@ -11,7 +11,8 @@ License: MIT
     <title>Intercom</title>
     <script>
         "use strict";
-        const DEBUG_LOGGING = true
+        const DEFAULT_USERNAME = 'My User'
+        const DEBUG_LOGGING    = true
     </script>
     <style>
         * {
@@ -78,7 +79,7 @@ License: MIT
 
         #user-list .toggle::before {
             display: inline-block;
-            content: "Off";
+            content: "off";
             width: 50px;
             color: #fff;
             background-color: #444;
@@ -137,17 +138,95 @@ License: MIT
     <script>(async () => {
         "use strict";
 
-        let users = ['User1', 'User2']
-        let audioStream = await prepareInputAudioStream()
-        disableAudioTracks(audioStream)
-        Object.assign(this, prepareUserInterface())
-        let userItems = updateUserItems(users)
-        Object.assign(this, { users, audioStream, userItems })
 
-        if (audioStream) {
+        //-[ Setup ]----------------------------------------------------------
+
+
+        const {
+            audioStream,
+            nameInput,
+            userList,
+            updateUserItems,
+            sendMessage,
+        } = Object.assign(this,
+            await prepareInputAudioStream(),
+            await prepareUserInterface(),
+            await prepareMessaging(),
+        )
+        
+        
+        //-[ App ]------------------------------------------------------------
+
+
+        let state = {
+            user: { name: DEFAULT_USERNAME },
+            users: [],
+        }
+        
+        // Mute microphone by default
+        disableAudioTracks(audioStream)
+
+        // Handle name change
+        nameInput.value = state.user.name
+        nameInput.onblur = () => {
+            const name = nameInput.value.trim()
+            nameInput.value = name
+            if (name === state.user.name) return
+            const user = { name }
+            sendUser(user)
+                .catch(error => {
+                    console.error(error)
+                    nameInput.value = state.user.name
+                })
+        }
+
+        // Autoconnect
+        const { name } = state.user
+        if (name) sendUser({ name })
+
+
+        //-[ Functions ]------------------------------------------------------
+
+
+        function toUser(data) {
+            let { name } = data || {}
+            name = (name || '').trim()
+            return { name }
+        }
+
+        
+        async function sendUser(user) {
+            user = toUser(user)
+            if (!user.name) throw new Error('Name required')
+            return sendMessage({ user })
+                .then(({ user, users }) => {
+                    onReceiveUser(user)
+                    onReceiveUsers(users)
+                })
+        }
+
+
+        function onReceiveUser(user) {
+            user = toUser(user)
+            state.user = user
+            nameInput.value = user.name
+        }
+
+
+        function onReceiveUsers(users) {
+            users = (users || []).map(toUser)
+            state.users = users
+            let userItems = updateUserItems(users)
+
             userItems.forEach(userItem => {
-                let { audio, button } = userItem
-                let stream = audioStream.clone()
+                const { toggle } = userItem
+                toggle.onclick = () => toggle.toggle()
+            })
+
+            if (!audioStream) return
+            userItems.forEach(userItem => {
+                const { audio, button } = userItem
+                const stream = audioStream.clone()
                 audio.srcObject = stream
                 button.onpress   = () => enableAudioTracks(stream)
                 button.onrelease = () => disableAudioTracks(stream)
@@ -158,51 +237,62 @@ License: MIT
         // =[ UI ]============================================================
 
 
-        function prepareUserInterface() {
-            let nameInput = document.querySelector('#name-input')
-            let userList  = document.querySelector('#user-list')
-            let templates = {
+        async function prepareUserInterface() {
+            const nameInput = document.querySelector('#name-input')
+            const userList  = document.querySelector('#user-list')
+            const templates = {
                 userItem: userList.querySelector('.user-item[data-type="template"]')
             }
             Object.keys(templates).forEach(k => { templates[k].remove() })
-            let updateUserItems = userNames => _updateUserItems(userNames, userList, templates.userItem)
+            const updateUserItems = users => _updateUserItems(users, userList, templates.userItem)
+
+            nameInput.onfocus = onNameInputFocus
+            nameInput.onkeydown = onNameInputKeyDown
 
             return {
                 templates, nameInput, userList,
                 updateUserItems
             }
+            
+            function onNameInputFocus(event) {
+                this.select()
+            }
+
+            function onNameInputKeyDown(event) {
+                if (event.key === 'Enter') this.blur()
+            }
         }
 
         
-        function _updateUserItems(userNames, userList, userItemTemplate) {
+        function _updateUserItems(users, userList, userItemTemplate) {
             userList.innerHTML = ''
-            return (userNames || [])
-                .map(userName => createUserItem(userItemTemplate, userName))
+            return (users || [])
+                .map(user => _createUserItem(user, userItemTemplate))
                 .map(userItem => (userList.appendChild(userItem), userItem))
         }
 
 
-        function createUserItem(template, userName) {
-            let userItem = template.cloneNode(true)
+        function _createUserItem(user, template) {
+            const userItem = template.cloneNode(true)
             delete userItem.dataset.type
 
-            let audio  = userItem.querySelector('audio')
-            let name   = userItem.querySelector('.name')
-            let button = userItem.querySelector('.button')
-            let toggle = userItem.querySelector('.toggle')
-            let light  = userItem.querySelector('.light')
+            const audio  = userItem.querySelector('audio')
+            const name   = userItem.querySelector('.name')
+            const toggle = userItem.querySelector('.toggle')
+            const button = userItem.querySelector('.button')
+            const light  = userItem.querySelector('.light')
 
-            name.innerHTML     = userName
-
-            toggle.isPressed   = function() { return this.classList.contains('pressed') }
-            button.onmousedown = function() { this.classList.add('pressed'); if (this.onpress) this.onpress() }
-            button.onmouseup   =
-            button.onmouseout  = function() { this.classList.remove('pressed'); if (this.onrelease) this.onrelease() }
+            name.innerHTML     = user.name
 
             toggle.isEnabled   = function() { return this.classList.contains('on') }
             toggle.enable      = function() { this.classList.add('on') }
             toggle.disable     = function() { this.classList.remove('on') }
             toggle.toggle      = function() { this.isEnabled() ? this.disable() : this.enable() }
+
+            button.isPressed   = function() { return this.classList.contains('pressed') }
+            button.onmousedown = function() { if (!toggle.isEnabled()) return; this.classList.add('pressed'); if (this.onpress) this.onpress() }
+            button.onmouseup   =
+            button.onmouseout  = function() { this.classList.remove('pressed'); if (this.onrelease) this.onrelease() }
             
             light.isEnabled    = function() { return this.classList.contains('on') }
             light.enable       = function() { this.classList.add('on') }
@@ -222,19 +312,53 @@ License: MIT
 
 
         async function prepareInputAudioStream() {
-            return navigator.mediaDevices.getUserMedia({ audio: true })
+            const audioStream = await navigator.mediaDevices
+                .getUserMedia({ audio: true })
                 .catch(error => { console.error(error) })
+            return { audioStream }
         }
 
 
         function enableAudioTracks(audioStream, enable=true) {
             if (!audioStream) return
-            audioStream.getAudioTracks().forEach(audioTrack => audioTrack.enabled = enable)
+            audioStream.getAudioTracks().forEach(track => track.enabled = enable)
         }
 
 
         function disableAudioTracks(audioStream) {
             enableAudioTracks(audioStream, false)
+        }
+
+
+        // =[ Messaging ]=====================================================
+
+
+        async function prepareMessaging() {
+            const sendMessage = _sendMessage
+            return { sendMessage }
+        }
+
+
+        async function _sendMessage(data) {
+            let { user } = data
+            
+            // Register User
+            // { user: { name }} => { user, users }
+            if (user && user.name) {
+                user = { name: user.name }
+                let users = [ user, { name: 'Other User' } ]
+                return { user, users }
+            }
+
+            throw new Error('Invalid message')
+        }
+
+
+        // =[ Utility ]=======================================================
+
+
+        function debugLog(message) {
+            if (DEBUG_LOGGING) console.log(...arguments)
         }
     })()</script>
 
