@@ -143,7 +143,7 @@ License: MIT
 
 
         const {
-            audioStream,
+            inputAudioStream,
             nameInput,
             userList,
             updateUserItems,
@@ -153,18 +153,20 @@ License: MIT
             await prepareUserInterface(),
             await prepareMessaging(),
         )
+
         
         
         //-[ App ]------------------------------------------------------------
 
 
-        let state = {
+        let state = this.state = {
             user: { name: DEFAULT_USERNAME },
             users: [],
+            connections: {}  // { <key=user_id>: { connection, dataChannel, localStream, remoteStream }}
         }
         
         // Mute microphone by default
-        disableAudioTracks(audioStream)
+        disableAudioTracks(inputAudioStream)
 
         // Handle name change
         nameInput.value = state.user.name
@@ -172,8 +174,7 @@ License: MIT
             const name = nameInput.value.trim()
             nameInput.value = name
             if (name === state.user.name) return
-            const user = { name }
-            sendUser(user)
+            register(name)
                 .catch(error => {
                     console.error(error)
                     nameInput.value = state.user.name
@@ -182,27 +183,17 @@ License: MIT
 
         // Autoconnect
         const { name } = state.user
-        if (name) sendUser({ name })
+        if (name) await register(name)
 
 
         //-[ Functions ]------------------------------------------------------
 
 
         function toUser(data) {
-            let { name } = data || {}
+            let { id, name } = data || {}
+            if (typeof(id) === 'undefined') id = null
             name = (name || '').trim()
-            return { name }
-        }
-
-        
-        async function sendUser(user) {
-            user = toUser(user)
-            if (!user.name) throw new Error('Name required')
-            return sendMessage({ user })
-                .then(({ user, users }) => {
-                    onReceiveUser(user)
-                    onReceiveUsers(users)
-                })
+            return { id, name }
         }
 
 
@@ -214,23 +205,168 @@ License: MIT
 
 
         function onReceiveUsers(users) {
-            users = (users || []).map(toUser)
+            users = (users || [])
+                // .filter(user => user.id !== state.user.id)
+                .map(toUser)
             state.users = users
-            let userItems = updateUserItems(users)
+            let userItems = state.userItems = updateUserItems(users)
 
-            userItems.forEach(userItem => {
-                const { toggle } = userItem
-                toggle.onclick = () => toggle.toggle()
-            })
+            userItems.forEach((userItem, index) => {
+                const user = users[index]
+                user.userItem = userItem
 
-            if (!audioStream) return
-            userItems.forEach(userItem => {
-                const { audio, button } = userItem
-                const stream = audioStream.clone()
-                audio.srcObject = stream
-                button.onpress   = () => enableAudioTracks(stream)
-                button.onrelease = () => disableAudioTracks(stream)
+                const { audio, toggle, button } = userItem
+                toggle.onenable  = onToggleEnable
+                toggle.ondisable = onToggleDisable
+
+                function onToggleEnable() {
+                    performOffer(user.id)
+                        .then(({ connection, offer, response }) => {
+                            let [offerConnection, offerResponse] = [connection, response]
+                            return { offerConnection, offer, offerResponse }
+                        })
+                        .then(async ({ offerConnection, offer, offerResponse }) => {
+                            let { connection, answer, response } = await performAnswer(offer, state.user.id)
+                            let [answerConnection, answerResponse] = [connection, response]
+                            return { offerConnection, answerConnection, offer, answer, offerResponse, answerResponse }
+                        })
+                        .then(({ offerConnection, answerConnection, offer, answer, offerResponse, answerResponse }) => {
+                            acceptAnswer(offerConnection, answer)
+                            state.connections[user.id].answer = answer
+                        })
+                }
+
+                function onToggleDisable() {
+                    disconnect(user.id)
+                }
             })
+        }
+
+        
+        async function register(name) {
+            let message = { register: name }
+            let { id } = state.user
+            if (typeof(id) !== 'undefined' && id != null) {
+                message.id = id
+            }
+            return sendMessage(message)
+                .then(({ user, users }) => {
+                    onReceiveUser(user)
+                    onReceiveUsers(users)
+                })
+        }
+
+
+        async function performOffer(user_id) {
+            const user = state.users.find(user => user.id === user_id)
+            if (!user) throw new Error('User not found')
+            
+            await disconnect(user_id)
+            const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
+            disableAudioTracks(localStream)
+            const info = await createOfferConnection(localStream)
+            state.connections[user_id] = info
+
+            const { connection } = info
+            connection.ontrack = onTrack
+            
+            const { userItem } = user
+            if (userItem) {
+                userItem.button.onpress   = () => enableAudioTracks(localStream)
+                userItem.button.onrelease = () => disableAudioTracks(localStream)
+            }
+
+            const { offer } = info
+            const response = sendMessage({ offer, user_id })
+                .catch(error => {
+                    disconnect(user_id)
+                    throw error
+                })
+
+            return { connection, offer, response }
+
+            function onTrack(event) {
+                const stream = event.streams[0]
+                if (stream) {
+                    info.remoteStream = stream
+                    if (userItem) userItem.audio.srcObject = stream
+                }
+                debugLog('Added remote WebRTC audio stream')
+            }
+        }
+
+
+        async function performAnswer(offer, user_id) {
+            const user = state.users.find(user => user.id === user_id)
+            if (!user) throw new Error('User not found')
+
+            await disconnect(user_id)
+            const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
+            disableAudioTracks(localStream)
+            const info = await createAnswerConnection(offer, localStream)
+            state.connections[user_id] = info
+            
+            const { connection } = info
+            connection.ondatachannel = onDataChannel
+            connection.ontrack = onTrack
+
+            const { userItem } = user
+            if (userItem) {
+                userItem.button.onpress   = () => enableAudioTracks(localStream)
+                userItem.button.onrelease = () => disableAudioTracks(localStream)
+            }
+
+            const { answer } = info
+            const response = sendMessage({ answer, user_id })
+                .catch(error => {
+                    disconnect(user_id)
+                    throw error
+                })
+
+            return { connection, offer, answer, response }
+
+            function onDataChannel(event) {
+                info.dataChannel = event.channel
+                debugLog('Added remote WebRTC data channel')
+            }
+
+            function onTrack(event) {
+                const stream = event.streams[0]
+                if (stream) {
+                    info.remoteStream = stream
+                    if (userItem) userItem.audio.srcObject = stream
+                }
+                debugLog('Added remote WebRTC audio stream')
+            }
+        }
+
+
+        async function disconnect(user_id) {
+            const info = state.connections[user_id]
+            if (info) {
+                delete state.connections[user_id]
+                const user = state.users.find(user => user.id === user_id)
+                const userItem = (user || {}).userItem
+                const {
+                    connection,
+                    dataChannel,
+                    localStream,
+                    remoteStream
+                } = info
+                if (userItem) {
+                    userItem.toggle.disable()
+                    userItem.audio.srcObject  = undefined
+                    userItem.button.onpress   = undefined
+                    userItem.button.onrelease = undefined
+                }
+                if (localStream)  disableAudioTracks(localStream)
+                if (remoteStream) disableAudioTracks(remoteStream)
+                if (dataChannel)  await closeDataChannel(dataChannel)
+                if (connection)   await closeConnection(connection)
+                debugLog('Disconnected from user: ' + user.name)
+                return true
+            }
+            return false
         }
 
 
@@ -285,14 +421,19 @@ License: MIT
             name.innerHTML     = user.name
 
             toggle.isEnabled   = function() { return this.classList.contains('on') }
-            toggle.enable      = function() { this.classList.add('on') }
-            toggle.disable     = function() { this.classList.remove('on') }
+            toggle.enable      = function() { if (this.isEnabled()) return; this.classList.add('on'); if (this.onenable) this.onenable() }
+            toggle.disable     = function() { if (!this.isEnabled()) return; this.classList.remove('on'); if (this.ondisable) this.ondisable() }
             toggle.toggle      = function() { this.isEnabled() ? this.disable() : this.enable() }
+            toggle.onclick     = function() { this.toggle() }
+            toggle.onenable    = undefined
+            toggle.ondisable   = undefined
 
             button.isPressed   = function() { return this.classList.contains('pressed') }
             button.onmousedown = function() { if (!toggle.isEnabled()) return; this.classList.add('pressed'); if (this.onpress) this.onpress() }
             button.onmouseup   =
             button.onmouseout  = function() { this.classList.remove('pressed'); if (this.onrelease) this.onrelease() }
+            button.onpress     = undefined
+            button.onrelease   = undefined
             
             light.isEnabled    = function() { return this.classList.contains('on') }
             light.enable       = function() { this.classList.add('on') }
@@ -312,21 +453,156 @@ License: MIT
 
 
         async function prepareInputAudioStream() {
-            const audioStream = await navigator.mediaDevices
+            const inputAudioStream = await navigator.mediaDevices
                 .getUserMedia({ audio: true })
+                .then(stream => {
+                    let track = stream.getAudioTracks()[0]
+                    if (track) debugLog("Using audio device: " + track.label)
+                    return stream
+                })
                 .catch(error => { console.error(error) })
-            return { audioStream }
+            return { inputAudioStream }
         }
 
 
-        function enableAudioTracks(audioStream, enable=true) {
-            if (!audioStream) return
-            audioStream.getAudioTracks().forEach(track => track.enabled = enable)
+        function enableAudioTrack(track, enable=true) {
+            if (track.enabled === enable) return
+            track.enabled = enable
+            debugLog(`${enable ? "Enabled" : "Disabled"} audio device: ${track.label}`)
         }
 
 
-        function disableAudioTracks(audioStream) {
-            enableAudioTracks(audioStream, false)
+        function enableAudioTracks(stream, enable=true) {
+            if (!stream) return
+            stream.getAudioTracks().forEach(track => enableAudioTrack(track, enable))
+        }
+
+
+        function disableAudioTracks(stream) {
+            enableAudioTracks(stream, false)
+        }
+
+
+        // =[ WebRTC ]========================================================
+
+
+        async function createConnection() {
+            const connection = new RTCPeerConnection()
+            debugLog('Created WebRTC connection')
+            return connection
+        }
+
+
+        async function closeConnection(connection) {
+            connection.close()
+            debugLog('Closed WebRTC connection')
+        }
+
+
+        async function waitForIceCandidates(connection) {
+            return new Promise(resolve => {
+                connection.addEventListener('icecandidate', onIceCandidate)
+
+                function onIceCandidate(event) {
+                    if (event.candidate) return
+                    connection.removeEventListener('icecandidate', onIceCandidate)
+                    debugLog('WebRTC Ice candidates received')
+                    resolve(connection)
+                }
+            })
+        }
+
+
+        async function createDataChannel(connection) {
+            const channel = connection.createDataChannel('data')
+            debugLog('Created WebRTC data channel')
+            return channel
+        }
+
+
+        async function closeDataChannel(channel) {
+            channel.close()
+            debugLog('Closed WebRTC data channel')
+        }
+
+
+        async function sendDataChannelMessage(channel, message) {
+            channel.send(message)
+            debugLog('Sent WebRTC data channel message: ', message)
+        }
+
+
+        async function addTracks(connection, stream) {
+            stream.getAudioTracks().forEach(track => {
+                connection.addTrack(track, stream)
+                debugLog("Created WebRTC audio track for device: " + track.label)
+            })
+        }
+
+
+        async function createOffer(connection, options) {
+            const offer = await connection.createOffer(options)
+            debugLog('Created WebRTC offer')
+            return offer
+        }
+
+
+        async function setOffer(connection, offer) {
+            const waitForSdp = waitForIceCandidates(connection)
+            await connection.setLocalDescription(offer)
+            await waitForSdp
+            offer.sdp = connection.localDescription.sdp
+            debugLog("Applied local WebRTC offer")
+            return offer
+        }
+
+
+        async function acceptOffer(connection, offer) {
+            await connection.setRemoteDescription(offer)
+            debugLog('Applied remote WebRTC offer')
+        }
+        
+
+        async function createAnswer(connection) {
+            const answer = await connection.createAnswer()
+            debugLog('Created WebRTC answer')
+            return answer
+        }
+
+
+        async function setAnswer(connection, answer) {
+            const waitForSdp = waitForIceCandidates(connection)
+            await connection.setLocalDescription(answer)
+            await waitForSdp
+            answer.sdp = connection.localDescription.sdp
+            debugLog("Applied local WebRTC answer")
+            return answer
+        }
+
+
+        async function acceptAnswer(connection, answer) {
+            await connection.setRemoteDescription(answer)
+            debugLog('Appled remote WebRTC answer')
+        }
+
+
+        async function createOfferConnection(stream) {
+            const connection  = await createConnection()
+            const dataChannel = await createDataChannel(connection)
+            if (stream) await addTracks(connection, stream)
+            const offer       = await createOffer(connection)
+            await setOffer(connection, offer)
+            return { connection, dataChannel, localStream: stream, offer }
+        }
+
+
+        async function createAnswerConnection(offer, stream) {
+            const connection  = await createConnection()
+            await acceptOffer(connection, offer)
+            if (stream) await addTracks(connection, stream)
+            const answer      = await createAnswer(connection)
+            await setAnswer(connection, answer)
+            return { connection, localStream: stream, offer, answer }
         }
 
 
@@ -340,14 +616,57 @@ License: MIT
 
 
         async function _sendMessage(data) {
-            let { user } = data
-            
-            // Register User
-            // { user: { name }} => { user, users }
-            if (user && user.name) {
-                user = { name: user.name }
-                let users = [ user, { name: 'Other User' } ]
+            debugLog('Sending message: ', data)
+
+            // Register user
+            // { register: name}     => { register: { id, name }, users }
+            // { register: name, id} => { register: { id, name }, users }
+            if (data.hasOwnProperty('register')) {
+                let { id, register:name } = data
+                if (!name) throw new Error('Name required')
+                let user = { register: id || 'you', name }
+                let users = [ { name }, { name: 'Other User' } ]
                 return { user, users }
+            }
+
+
+            // Unregister user
+            // { unregister: id } => undefined
+            if (data.hasOwnProperty('register')) {
+                let { id } = data
+                if (!id) throw new Error('User ID required')
+                return undefined
+            }
+
+
+            // Offer connection (from id to name)
+            // { id, offer, name } => undefined
+            if (data.hasOwnProperty('offer')) {
+                let { id, offer, name } = data
+                if (!id) throw new Error('User ID required')
+                if (!offer) throw new Error('Offer required')
+                if (!name) throw new Error('User name required')
+                return { id, answer: null, name }
+            }
+
+            // Answer connection offer (from id to name)
+            // { id, answer, name } => undefined
+            if (data.hasOwnProperty('answer')) {
+                let { id, answer, name } = data
+                if (!id) throw new Error('User ID required')
+                if (!answer) throw new Error('Answer required')
+                if (!name) throw new Error('User name required')
+                return undefined
+            }
+
+            // Wait for message(s)
+            // { wait: id } => undefined
+            // { wait: id } => { messages: [] }
+            //      message = { user, users }
+            //      message = { offer, name }
+            //      message = { answer, name }
+            if (data.hasOwnProperty('wait')) {
+                return undefined
             }
 
             throw new Error('Invalid message')
