@@ -11,6 +11,16 @@ License: MIT
     <title>Intercom</title>
     <script>
         "use strict";
+        
+        // Messaging server info
+        const PROTO  = 'http'
+        const SERVER = 'localhost'
+        const PORT   = 8080
+        const PATH   = '/jsonLoader'
+
+        const MESSAGE_TIMEOUT   = 3000
+        const LONG_POLL_TIMEOUT = 30000
+
         const DEFAULT_USERNAME = 'My User'
         const DEBUG_LOGGING    = true
     </script>
@@ -162,22 +172,26 @@ License: MIT
         let state = this.state = {
             user: { name: DEFAULT_USERNAME },
             users: [],
-            connections: {}  // { <key=user_id>: { connection, dataChannel, localStream, remoteStream }}
+            connections: {}  // { <key=user_name>: { connection, dataChannel, localStream, remoteStream, offer, answer }}
         }
         
         // Mute microphone by default
         disableAudioTracks(inputAudioStream)
 
         // Handle name change
+        if (nameInput.value) {
+            nameInput.value = nameInput.value.trim()
+            if (nameInput.value) state.user.name = nameInput.value
+        }
         nameInput.value = state.user.name
         nameInput.onblur = () => {
             const name = nameInput.value.trim()
             nameInput.value = name
-            if (name === state.user.name) return
+            // if (name === state.user.name) return
             register(name)
                 .catch(error => {
                     console.error(error)
-                    nameInput.value = state.user.name
+                    nameInput.value = state.user.name || ''
                 })
         }
 
@@ -186,7 +200,7 @@ License: MIT
         if (name) await register(name)
 
 
-        //-[ Functions ]------------------------------------------------------
+        //-[ Data ]-----------------------------------------------------------
 
 
         function toUser(data) {
@@ -197,10 +211,230 @@ License: MIT
         }
 
 
+        //-[ Actions ]--------------------------------------------------------
+
+        
+        async function register(name) {
+            let message = { register: name }
+            let { id } = state.user
+            if (typeof(id) !== 'undefined' && id != null) {
+                message.id = id
+            }
+            return sendMessage(message)
+                .then(({ register: user, users }) => {
+                    onReceiveUser(user)
+                    onReceiveUsers(users)
+                })
+                .then(() => {
+                    loopWait() // not returned!
+                })
+        }
+
+
+        async function performOffer(name) {
+            const targetUser = state.users.find(user => user.name === name)
+            if (!targetUser) throw new Error('User not found')
+            
+            await disconnect(name)
+            const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
+            disableAudioTracks(localStream)
+
+            const { userItem } = targetUser
+            if (userItem) {
+                userItem.button.onpress   = () => enableAudioTracks(localStream)
+                userItem.button.onrelease = () => disableAudioTracks(localStream)
+            }
+
+            const info = await createOfferConnection(localStream, onTrack)
+            state.connections[name] = info
+
+            const { connection, dataChannel } = info
+            dataChannel.onclose = onClose
+
+            let { offer } = info
+            offer = JSON.stringify(offer)
+            const response = sendMessage({ id: state.user.id, offer, name })
+                .catch(error => {
+                    disconnect(name)
+                    throw error
+                })
+
+            return { connection, offer, response }
+
+            function onTrack(event) {
+                const stream = event.streams[0]
+                if (stream) {
+                    info.remoteStream = stream
+                    if (userItem) userItem.audio.srcObject = stream
+                }
+                debugLog('Added remote WebRTC audio stream')
+            }
+
+            function onClose(event) {
+                debugLog(`Data connection closed for user: ${name}`)
+                disconnect(name)
+            }
+        }
+
+
+        async function performAnswer(offer, name) {
+            const targetUser = state.users.find(user => user.name === name)
+            if (!targetUser) throw new Error('User not found')
+            
+            await disconnect(name)
+            const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
+            disableAudioTracks(localStream)
+            
+            const { userItem } = targetUser
+            if (userItem) {
+                userItem.button.onpress   = () => enableAudioTracks(localStream)
+                userItem.button.onrelease = () => disableAudioTracks(localStream)
+            }
+
+            const info = {} // must exist before calling createAnswerConneciton (for onTrack)
+            Object.assign(info, await createAnswerConnection(offer, localStream, onTrack, onDataChannel))
+            state.connections[name] = info
+
+            let { answer } = info
+            answer = JSON.stringify(answer)
+            const response = sendMessage({ id: state.user.id, answer, name })
+                .catch(error => {
+                    disconnect(name)
+                    throw error
+                })
+
+            
+            const { connection } = info
+            return { connection, offer, answer, response }
+
+            function onDataChannel(event) {
+                info.dataChannel = event.channel
+                info.dataChannel.onclose = onClose
+                debugLog('Added remote WebRTC data channel')
+            }
+
+            function onTrack(event) {
+                const stream = event.streams[0]
+                if (stream) {
+                    info.remoteStream = stream
+                    if (userItem) userItem.audio.srcObject = stream
+                }
+                debugLog('Added remote WebRTC audio stream')
+            }
+
+            function onClose(event) {
+                debugLog(`Data connection closed for user: ${name}`)
+                disconnect(name)
+            }
+        }
+
+
+        async function disconnect(name) {
+            const info = state.connections[name]
+            if (info) {
+                delete state.connections[name]
+                const targetUser = state.users.find(user => user.name === name)
+                const userItem = (targetUser || {}).userItem
+                const {
+                    connection,
+                    dataChannel,
+                    localStream,
+                    remoteStream
+                } = info
+                if (userItem) {
+                    userItem.toggle.disable()
+                    userItem.audio.srcObject  = undefined
+                    userItem.button.onpress   = undefined
+                    userItem.button.onrelease = undefined
+                }
+                if (localStream)  disableAudioTracks(localStream)
+                if (remoteStream) disableAudioTracks(remoteStream)
+                if (dataChannel)  await closeDataChannel(dataChannel)
+                if (connection)   await closeConnection(connection)
+                debugLog('Disconnected from user: ' + targetUser.name)
+                return true
+            }
+            return false
+        }
+
+
+        var _cancelLoopWait
+        function cancelLoopWait() {
+            if (_cancelLoopWait) _cancelLoopWait()
+            _cancelLoopWait = undefined
+        }
+
+
+        async function loopWait() {
+            let cancelled = false
+
+            cancelLoopWait()
+            _cancelLoopWait = cancel
+            return startLoop()
+
+            function cancel() {
+                cancelled = true
+            }
+
+            async function startLoop() {
+                while (!cancelled && state.user && state.user.id) {
+                    await sendMessage({ wait: state.user.id }, LONG_POLL_TIMEOUT)
+                        .then(response => {
+                            if (cancelled) return
+                            let { messages } = response
+                            if (messages) for (let message of messages) {
+                                onReceiveMessage(message)
+                            }
+                        })
+                        .catch(error => {
+                            if (error.name === 'AbortError') return
+                            console.error(error)
+                            cancel()
+                        })
+                }
+            }
+        }
+
+
+        //-[ Events ]--------------------------------------------------------
+
+
+        function onReceiveMessage(message)
+        {
+            if (!message || !state.user || !state.user.id) return
+
+            let { register, unregister, offer, answer, messages } = message
+
+            if (register) {
+                let { register: user, users } = message
+                onReceiveUser(user)
+                onReceiveUsers(users)
+            } else if (unregister) {
+                let { unregister: user, users } = message
+                disconnect(user.name)
+                onReceiveUsers(users)
+            } else if (offer) {
+                let { name } = message
+                onReceiveOffer(offer, name)
+            } else if (answer) {
+                let { name } = message
+                onReceiveAnswer(answer, name)
+            }
+        }
+
+
         function onReceiveUser(user) {
-            user = toUser(user)
-            state.user = user
-            nameInput.value = user.name
+            let { id, name, old_name } = user
+            if (id) {
+                user = toUser(user)
+                state.user = user
+                nameInput.value = name
+            } else if (old_name) {
+                if (state.connections[old_name]) {
+                    state.connections[name] = state.connections[old_name]
+                    delete state.connections[old_name]
+                }
+            }
         }
 
 
@@ -220,153 +454,50 @@ License: MIT
                 toggle.ondisable = onToggleDisable
 
                 function onToggleEnable() {
-                    performOffer(user.id)
-                        .then(({ connection, offer, response }) => {
-                            let [offerConnection, offerResponse] = [connection, response]
-                            return { offerConnection, offer, offerResponse }
-                        })
-                        .then(async ({ offerConnection, offer, offerResponse }) => {
-                            let { connection, answer, response } = await performAnswer(offer, state.user.id)
-                            let [answerConnection, answerResponse] = [connection, response]
-                            return { offerConnection, answerConnection, offer, answer, offerResponse, answerResponse }
-                        })
-                        .then(({ offerConnection, answerConnection, offer, answer, offerResponse, answerResponse }) => {
-                            acceptAnswer(offerConnection, answer)
-                            state.connections[user.id].answer = answer
-                        })
+                    if (!state.connections[user.name]) performOffer(user.name)
                 }
 
                 function onToggleDisable() {
-                    disconnect(user.id)
+                    disconnect(user.name)
                 }
             })
         }
 
-        
-        async function register(name) {
-            let message = { register: name }
-            let { id } = state.user
-            if (typeof(id) !== 'undefined' && id != null) {
-                message.id = id
-            }
-            return sendMessage(message)
-                .then(({ user, users }) => {
-                    onReceiveUser(user)
-                    onReceiveUsers(users)
+
+        async function onReceiveOffer(offer, name) {
+            let sourceUser = state.users.filter(user => user.name === name)[0]
+            if (!sourceUser) throw new Error(`Received offer from unknown user "${name}"... skipping`)
+            offer = JSON.parse(offer)
+            return performAnswer(offer, name)
+                .then(() => {
+                    let { userItem } = sourceUser
+                    if (!userItem) throw new Error(`Display element not found for user "${sourceUser.name}"`)
+                    userItem.toggle.enable()
+                    return offer
                 })
-        }
-
-
-        async function performOffer(user_id) {
-            const user = state.users.find(user => user.id === user_id)
-            if (!user) throw new Error('User not found')
-            
-            await disconnect(user_id)
-            const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
-            disableAudioTracks(localStream)
-            const info = await createOfferConnection(localStream)
-            state.connections[user_id] = info
-
-            const { connection } = info
-            connection.ontrack = onTrack
-            
-            const { userItem } = user
-            if (userItem) {
-                userItem.button.onpress   = () => enableAudioTracks(localStream)
-                userItem.button.onrelease = () => disableAudioTracks(localStream)
-            }
-
-            const { offer } = info
-            const response = sendMessage({ offer, user_id })
                 .catch(error => {
-                    disconnect(user_id)
+                    disconnect(name)
                     throw error
                 })
-
-            return { connection, offer, response }
-
-            function onTrack(event) {
-                const stream = event.streams[0]
-                if (stream) {
-                    info.remoteStream = stream
-                    if (userItem) userItem.audio.srcObject = stream
-                }
-                debugLog('Added remote WebRTC audio stream')
-            }
         }
 
 
-        async function performAnswer(offer, user_id) {
-            const user = state.users.find(user => user.id === user_id)
-            if (!user) throw new Error('User not found')
-
-            await disconnect(user_id)
-            const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
-            disableAudioTracks(localStream)
-            const info = await createAnswerConnection(offer, localStream)
-            state.connections[user_id] = info
-            
-            const { connection } = info
-            connection.ondatachannel = onDataChannel
-            connection.ontrack = onTrack
-
-            const { userItem } = user
-            if (userItem) {
-                userItem.button.onpress   = () => enableAudioTracks(localStream)
-                userItem.button.onrelease = () => disableAudioTracks(localStream)
-            }
-
-            const { answer } = info
-            const response = sendMessage({ answer, user_id })
+        async function onReceiveAnswer(answer, name) {
+            let sourceUser = state.users.filter(user => user.name === name)[0]
+            if (!sourceUser) throw new Error(`Received answer from unknown user "${name}"... skipping`)
+            let info = state.connections[name]
+            if (!info) throw new Error(`Received unprompted answer from user "${name}"... skipping`)
+            let { connection } = info
+            answer = JSON.parse(answer)
+            return acceptAnswer(connection, answer)
+                .then(() => {
+                    info.answer = answer
+                    return answer
+                })
                 .catch(error => {
-                    disconnect(user_id)
+                    disconnect(name)
                     throw error
                 })
-
-            return { connection, offer, answer, response }
-
-            function onDataChannel(event) {
-                info.dataChannel = event.channel
-                debugLog('Added remote WebRTC data channel')
-            }
-
-            function onTrack(event) {
-                const stream = event.streams[0]
-                if (stream) {
-                    info.remoteStream = stream
-                    if (userItem) userItem.audio.srcObject = stream
-                }
-                debugLog('Added remote WebRTC audio stream')
-            }
-        }
-
-
-        async function disconnect(user_id) {
-            const info = state.connections[user_id]
-            if (info) {
-                delete state.connections[user_id]
-                const user = state.users.find(user => user.id === user_id)
-                const userItem = (user || {}).userItem
-                const {
-                    connection,
-                    dataChannel,
-                    localStream,
-                    remoteStream
-                } = info
-                if (userItem) {
-                    userItem.toggle.disable()
-                    userItem.audio.srcObject  = undefined
-                    userItem.button.onpress   = undefined
-                    userItem.button.onrelease = undefined
-                }
-                if (localStream)  disableAudioTracks(localStream)
-                if (remoteStream) disableAudioTracks(remoteStream)
-                if (dataChannel)  await closeDataChannel(dataChannel)
-                if (connection)   await closeConnection(connection)
-                debugLog('Disconnected from user: ' + user.name)
-                return true
-            }
-            return false
         }
 
 
@@ -582,12 +713,13 @@ License: MIT
 
         async function acceptAnswer(connection, answer) {
             await connection.setRemoteDescription(answer)
-            debugLog('Appled remote WebRTC answer')
+            debugLog('Applied remote WebRTC answer')
         }
 
 
-        async function createOfferConnection(stream) {
+        async function createOfferConnection(stream, ontrack) {
             const connection  = await createConnection()
+            connection.ontrack = ontrack
             const dataChannel = await createDataChannel(connection)
             if (stream) await addTracks(connection, stream)
             const offer       = await createOffer(connection)
@@ -596,10 +728,12 @@ License: MIT
         }
 
 
-        async function createAnswerConnection(offer, stream) {
+        async function createAnswerConnection(offer, stream, ontrack, ondatachannel) {
             const connection  = await createConnection()
-            await acceptOffer(connection, offer)
+            connection.ontrack = ontrack
+            connection.ondatachannel = ondatachannel
             if (stream) await addTracks(connection, stream)
+            await acceptOffer(connection, offer)
             const answer      = await createAnswer(connection)
             await setAnswer(connection, answer)
             return { connection, localStream: stream, offer, answer }
@@ -610,74 +744,142 @@ License: MIT
 
 
         async function prepareMessaging() {
-            const sendMessage = _sendMessage
-            return { sendMessage }
+            const url = `${PROTO}://${SERVER}${PORT ? ':' + PORT : ''}${PATH}`
+            const iframe = await createAndLoadMessagingIframe(url)
+            const sendMessage = (data, timeout) => _sendMessage(iframe, data, timeout)
+            return {
+                messagingUrl:    url,
+                messagingIframe: iframe,
+                sendMessage,
+            }
         }
 
 
-        async function _sendMessage(data) {
-            debugLog('Sending message: ', data)
-
-            // Register user
-            // { register: name}     => { register: { id, name }, users }
-            // { register: name, id} => { register: { id, name }, users }
-            if (data.hasOwnProperty('register')) {
-                let { id, register:name } = data
-                if (!name) throw new Error('Name required')
-                let user = { register: id || 'you', name }
-                let users = [ { name }, { name: 'Other User' } ]
-                return { user, users }
-            }
-
-
-            // Unregister user
-            // { unregister: id } => undefined
-            if (data.hasOwnProperty('register')) {
-                let { id } = data
-                if (!id) throw new Error('User ID required')
-                return undefined
-            }
-
-
-            // Offer connection (from id to name)
-            // { id, offer, name } => undefined
-            if (data.hasOwnProperty('offer')) {
-                let { id, offer, name } = data
-                if (!id) throw new Error('User ID required')
-                if (!offer) throw new Error('Offer required')
-                if (!name) throw new Error('User name required')
-                return { id, answer: null, name }
-            }
-
-            // Answer connection offer (from id to name)
-            // { id, answer, name } => undefined
-            if (data.hasOwnProperty('answer')) {
-                let { id, answer, name } = data
-                if (!id) throw new Error('User ID required')
-                if (!answer) throw new Error('Answer required')
-                if (!name) throw new Error('User name required')
-                return undefined
-            }
-
-            // Wait for message(s)
-            // { wait: id } => undefined
-            // { wait: id } => { messages: [] }
-            //      message = { user, users }
-            //      message = { offer, name }
-            //      message = { answer, name }
-            if (data.hasOwnProperty('wait')) {
-                return undefined
-            }
-
-            throw new Error('Invalid message')
+        async function createAndLoadMessagingIframe(sourceUrl) {
+            const iframe = document.createElement('iframe')
+            iframe.setAttribute('style', "display:none")
+            iframe.src = sourceUrl
+            document.body.appendChild(iframe)
+            return new Promise(resolve => {
+                iframe.addEventListener('load', onLoad)
+                function onLoad() {
+                    iframe.removeEventListener('load', onLoad)
+                    debugLog('Loaded messaging iframe')
+                    resolve(iframe)
+                }
+            })
         }
+
+
+        async function _sendMessage(iframe, data, timeout=MESSAGE_TIMEOUT) {
+            const messageId = uuidv4()
+            
+            return new Promise((resolve, reject) => {
+                const timer = !timeout ? undefined : setTimeout(() => {
+                    window.removeEventListener('message', onMessage)
+                    reject(Object.assign(new Error('response timed out'), { name: 'AbortError'}))
+                }, timeout + 1000)
+                
+                window.addEventListener('message', onMessage)
+                let message = { _id: messageId, data }
+                if (timeout) message._timeout = timeout
+                debugLog('Sending message: ', data)
+                iframe.contentWindow.postMessage(message, '*')
+                
+                function onMessage(event) {
+                    // debugLog(event)
+                    const { _id, data, error, error_name } = event.data
+                    if (_id === messageId) {
+                        window.removeEventListener('message', onMessage)
+                        clearTimeout(timer)
+                        if (error) {
+                            const errorData = new Error(error)
+                            if (error_name) errorData.name = error_name
+                            reject(errorData)
+                        } else {
+                            debugLog('Received message: ', data)
+                            resolve(data)
+                        }
+                    }
+                }
+            })
+        }
+
+
+        // async function _sendMessage(iframe, data, timeout=MESSAGE_TIMEOUT) {
+        //     debugLog('Sending message: ', data)
+
+        //     // Register user
+        //     // { register: name}     => { register: { id, name }, users }
+        //     // { register: name, id} => { register: { id, name }, users }
+        //     if (data.hasOwnProperty('register')) {
+        //         let { id, register:name } = data
+        //         if (!name) throw new Error('Name required')
+        //         let user = { register: id || 'you', name }
+        //         let users = [ { name }, { name: 'Other User' } ]
+        //         return { user, users }
+        //     }
+
+
+        //     // Unregister user
+        //     // { unregister: id } => undefined
+        //     if (data.hasOwnProperty('register')) {
+        //         let { id } = data
+        //         if (!id) throw new Error('User ID required')
+        //         return undefined
+        //     }
+
+
+        //     // Offer connection (from id to name)
+        //     // { id, offer, name } => undefined
+        //     if (data.hasOwnProperty('offer')) {
+        //         let { id, offer, name } = data
+        //         if (!id) throw new Error('User ID required')
+        //         if (!offer) throw new Error('Offer required')
+        //         if (!name) throw new Error('User name required')
+        //         return { id, answer: null, name }
+        //     }
+
+        //     // Answer connection offer (from id to name)
+        //     // { id, answer, name } => undefined
+        //     if (data.hasOwnProperty('answer')) {
+        //         let { id, answer, name } = data
+        //         if (!id) throw new Error('User ID required')
+        //         if (!answer) throw new Error('Answer required')
+        //         if (!name) throw new Error('User name required')
+        //         return undefined
+        //     }
+
+        //     // Wait for message(s)
+        //     // { wait: id } => undefined
+        //     // { wait: id } => { messages: [] }
+        //     //      message = { register: { name }, users }
+        //     //      message = { unregister: user, users }
+        //     //      message = { offer, name }
+        //     //      message = { answer, name }
+        //     if (data.hasOwnProperty('wait')) {
+        //         return undefined
+        //     }
+
+        //     throw new Error('Invalid message')
+        // }
 
 
         // =[ Utility ]=======================================================
 
 
         function debugLog(message) {
+            // Log only if DEBUG_LOGGING is enabled
             if (DEBUG_LOGGING) console.log(...arguments)
+        }
+
+
+        function uuidv4() {
+            // Generate a random UUID version 4 string
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8)
+                return v.toString(16)
+            });
         }
     })()</script>
 

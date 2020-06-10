@@ -26,14 +26,15 @@ const users_ = {}  // key=user_id, value=user
 
 
 const routes_ = {
-    '/': rootRoute,
+    '/':           rootRoute,
+    '/jsonLoader': jsonLoaderRoute,
 }
 const dataRoutes_ = {
-    'register':   registerRoute,
-    'unregister': unregisterRoute,
-    'offer':      offerRoute,
-    'answer':     answerRoute,
-    'wait':       waitRoute,
+    'register':   registerRoute,    // { register: name, id? } => { register: { name, id }, users }
+    'unregister': unregisterRoute,  // { unregister: id }      => undefined
+    'offer':      offerRoute,       // { id, offer, name }     => undefined
+    'answer':     answerRoute,      // { id, answer, name }    => undefined
+    'wait':       waitRoute,        // { wait: id }            => { messages: [] }
 }
 
 
@@ -72,19 +73,27 @@ async function rootRoute(connection) {
     throw errorWithCode(400, "unknown request parameters")
 }
 
+
+async function jsonLoaderRoute(connection) {
+    const javascript = `(${jsonLoader.toString()})()`
+    writeHtmlResponse(connection.response, wrapAsHtmlScript(javascript))
+}
+
+
 // Register user
-// { register: name}     => { register: { id, name }, users }
-// { register: name, id} => { register: { id, name }, users }
+// { register: name, id? } => { register: { id, name }, users }
 async function registerRoute(connection) {
     let { id, register: name } = connection.query
     if (typeof(name) === 'string') name = name.trim()
     if (!name) throw errorWithCode(400, "user name required")
 
-    id = id || uuidv4()
-    let time = connection.time
-    let user = users_[id]
+    id           = id || uuidv4()
+    let time     = connection.time
+    let user     = users_[id]
+    let old_name = undefined
 
     if (user) {
+        old_name = user.name
         user = Object.assign({}, user, { name, time })
     } else {
         for (let id in users_) if (users_[id].name === name) {
@@ -95,9 +104,15 @@ async function registerRoute(connection) {
         user = { id, name, time, queue, connection }
     }
 
-    let privateUser  = { id, name }
+    let privateUser = { id, name }
     let publicUser  = { name }
-    let publicUsers = await generatePublicUsers(...Object.keys(users_))
+    if (old_name) {
+        Object.assign(privateUser, { old_name })
+        Object.assign(publicUser, { old_name })
+    }
+    let otherUserIds = Object.keys(users_)
+        .filter(user_id => id != user_id)
+    let publicUsers = await generatePublicUsers(...otherUserIds)
         .then(users => users.concat(publicUser))
         .then(users => sortUsersByName(users))
 
@@ -107,7 +122,9 @@ async function registerRoute(connection) {
     writeJsonResponse(connection.response, privateData)
     users_[id] = user
 
-    sendMessageToAll(publicData, id)
+    if (!old_name || old_name != name) {
+        sendMessageToAll(publicData, id)
+    }
 
     debugLog(`Registered user: ${name} (user_id: ${id})`)
 }
@@ -186,6 +203,7 @@ async function waitRoute(connection) {
         writeJsonResponse(connection.response, { messages: user.queue })
         user.queue.length = 0
     } else {
+        if (user.connection) writeJsonResponse(user.connection.response)
         user.connection = connection
         user.connection.response.on('close', () => {
             if (user.connection === connection) user.connection = undefined
@@ -228,6 +246,7 @@ async function findUserByName(name) {
 
 
 async function enqueueMessage(user_id, data) {
+    // Store the message to be sent to the given user 
     let user = users_[user_id]
     if (!user) throw new Error('enqueueMessage: unknown user')
     user.queue.push(data)
@@ -235,6 +254,7 @@ async function enqueueMessage(user_id, data) {
 
 
 async function sendQueue(user_id) {
+    // Send all enqueued messages to the given user (if they are waiting)
     let user = users_[user_id]
     if (!user) throw new Error('sendQueue: unknown user')
 
@@ -248,6 +268,7 @@ async function sendQueue(user_id) {
 
 
 async function sendMessage(user_id, data) {
+    // Send or enqueue the message to the given user
     await enqueueMessage(user_id, data)
         .then(() => sendQueue(user_id))
         .catch(console.error)
@@ -255,6 +276,7 @@ async function sendMessage(user_id, data) {
 
 
 async function sendMessageToAll(data, exclude_user_id=undefined) {
+    // Send or enqueue the message to all users (except excluded)
     for (let user_id in users_) if (users_.hasOwnProperty(user_id)) {
         if (user_id === exclude_user_id) return
         await sendMessage(user_id, data)
@@ -267,24 +289,28 @@ async function sendMessageToAll(data, exclude_user_id=undefined) {
 
 
 function writeHtmlResponse(response, str) {
+    // Respond with an HTML document
     response.writeHead(200, {'Content-Type': 'text/html', CHARSET});
     response.end(str)
 }
 
 
 function writeJsonResponse(response, obj) {
+    // Respond with a JSON object
     response.writeHead(200, {'Content-Type': 'application/json', CHARSET});
     response.end(obj ? JSON.stringify(obj) : undefined);
 }
 
 
 function writeErrorResponse(response, code, description) {
+    // Respond with an error code and message
     response.writeHead(code, description, {'Content-Type': 'text/plain', CHARSET});
     response.end();
 }
 
 
 async function createConnectionObject(request, response) {
+    // Generate an object encapsulating usable request/response information
     const time = new Date().getTime()
     const { pathname, query: get } = url.parse(request.url, true)
     const post = await parsePostQuery(request)
@@ -294,6 +320,8 @@ async function createConnectionObject(request, response) {
 
 
 async function parsePostQuery(request) {
+    // Wait for all POST data to be received, parse it as querystring format,
+    // and return and data object containing the defined properties
     if (request.method != 'POST') return {}
 
     let queryData = ''
@@ -327,18 +355,115 @@ async function parsePostQuery(request) {
 
 
 function debugLog(message) {
+    // Log only if DEBUG_LOGGING is enabled
     if (DEBUG_LOGGING) console.log(...arguments)
 }
 
 
 function errorWithCode(code, message) {
+    // Generate an error with a specified 'code' property
     return Object.assign(new Error(message), { code })
 }
 
 
 function uuidv4() {
+    // Generate a random UUID version 4 string
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8)
         return v.toString(16)
     });
+}
+
+
+function wrapAsHtmlScript(scriptString) {
+    // Wrap the given JavaScript string in <html> and <script> tags to be
+    // served in a browser
+    return (`<DOCTYPE html><html><head><meta charset="${CHARSET}"/></head><body><script>"use strict";${scriptString}</script></body></html>`)
+}
+
+
+// =[ JSON Loader ]===========================================================
+
+
+// Runs in browser
+function jsonLoader() {
+    let user_id = undefined
+    window.addEventListener('message', onMessage)
+    window.addEventListener('unload', onUnload)
+
+
+    function makeQueryString(data) {
+        // Encode a JSON object to querystring format
+        const enc = encodeURIComponent
+        return Object.keys(data)
+             .map(k => enc(k) + '=' + enc(data[k]))
+             .join('&')
+    }
+
+
+    function onMessage(event) {
+        let { _id, _timeout, data } = event.data
+        if (typeof(_id) !== 'string' || !_id) return
+        if (!data) return
+        
+        let abortController = undefined
+        let signal          = undefined
+        let timer           = undefined
+
+        if (_timeout) {
+            // Abort request after the given timeout
+            abortController = new AbortController()
+            signal = abortController.signal
+            timer = setTimeout(() => { abortController.abort() }, _timeout)
+        }
+
+        // Send request to signal server
+        fetch('/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain', charset: "utf-8"},
+            body: makeQueryString(data),
+            signal,
+        })
+        .then(async response => {
+            // Process response as JSON
+            clearTimeout(timer)
+            const { ok, status, statusText, headers } = response
+            if (!ok) {
+                throw new Error(`Data request failed: ${status} (${statusText})`)
+            } else if (headers.get('Content-Type') != 'application/json') {
+                throw new Error(`Data request failed: Non-JSON response received`)
+            }
+            return response.text()
+        })
+        .then(body => {
+            return body ? JSON.parse(body) : undefined
+        })
+        .then(data => {
+            // Capture registrations' user_id (for onUnload)
+            let { register } = (data || {})
+            if (register && typeof(register.id) === 'string') {
+                user_id = register.id
+            }
+            return { data }
+        })
+        .catch(error => {
+            // Convert errors to processable JSON objects
+            if (error.name === 'AbortError') {
+                return { error_name: error.name, error: 'response timed out' }
+            } else {
+                return { error: error.message }
+            }
+        })
+        .then(data => {
+            // Return JSON result object to request source
+            event.source.postMessage(Object.assign(data, { _id }), '*')
+        })
+    }
+
+
+    function onUnload() {
+        // Unregister on close
+        if (!user_id) return
+        navigator.sendBeacon('/', makeQueryString({ unregister: user_id }))
+    }
 }
