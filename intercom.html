@@ -99,6 +99,10 @@ License: MIT
             content: "on";
             background-color: #f00;
         }
+        #user-list .toggle.waiting::before {
+            content: "…";
+            background-color: #66f;
+        }
 
 
         #user-list .button {
@@ -187,7 +191,6 @@ License: MIT
         nameInput.onblur = () => {
             const name = nameInput.value.trim()
             nameInput.value = name
-            // if (name === state.user.name) return
             register(name)
                 .catch(error => {
                     console.error(error)
@@ -234,26 +237,32 @@ License: MIT
         async function performOffer(name) {
             const targetUser = state.users.find(user => user.name === name)
             if (!targetUser) throw new Error('User not found')
+
+            const { userItem } = targetUser
+            if (!userItem) throw new Error(`Display element not found for user: ${targetUser.name}`)
             
             await disconnect(name)
             const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
             disableAudioTracks(localStream)
 
-            const { userItem } = targetUser
-            if (userItem) {
-                userItem.button.onpress   = () => enableAudioTracks(localStream)
-                userItem.button.onrelease = () => disableAudioTracks(localStream)
-            }
+            userItem.toggle.wait()
+            userItem.button.onpress   = () => enableAudioTracks(localStream)
+            userItem.button.onrelease = () => disableAudioTracks(localStream)
 
-            const info = await createOfferConnection(localStream, onTrack)
+            const info = {}
+            Object.assign(info, await createOfferConnection(localStream, onTrack))
             state.connections[name] = info
 
-            const { connection, dataChannel } = info
+            const { connection, dataChannel, offer } = info
+            dataChannel.onopen  = onOpen
             dataChannel.onclose = onClose
 
-            let { offer } = info
-            offer = JSON.stringify(offer)
-            const response = sendMessage({ id: state.user.id, offer, name })
+            const message = {
+                id: state.user.id,
+                offer: JSON.stringify(offer),
+                name
+            }
+            const response = sendMessage(message)
                 .catch(error => {
                     disconnect(name)
                     throw error
@@ -270,6 +279,10 @@ License: MIT
                 debugLog('Added remote WebRTC audio stream')
             }
 
+            function onOpen(event) {
+                userItem.toggle.enable()
+            }
+
             function onClose(event) {
                 debugLog(`Data connection closed for user: ${name}`)
                 disconnect(name)
@@ -281,15 +294,15 @@ License: MIT
             const targetUser = state.users.find(user => user.name === name)
             if (!targetUser) throw new Error('User not found')
             
+            const { userItem } = targetUser
+            if (!userItem) throw new Error(`Display element not found for user: ${targetUser.name}`)
+            
             await disconnect(name)
             const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
             disableAudioTracks(localStream)
-            
-            const { userItem } = targetUser
-            if (userItem) {
-                userItem.button.onpress   = () => enableAudioTracks(localStream)
-                userItem.button.onrelease = () => disableAudioTracks(localStream)
-            }
+                        
+            userItem.button.onpress   = () => enableAudioTracks(localStream)
+            userItem.button.onrelease = () => disableAudioTracks(localStream)
 
             const info = {} // must exist before calling createAnswerConneciton (for onTrack)
             Object.assign(info, await createAnswerConnection(offer, localStream, onTrack, onDataChannel))
@@ -310,6 +323,10 @@ License: MIT
             function onDataChannel(event) {
                 info.dataChannel = event.channel
                 info.dataChannel.onclose = onClose
+
+                userItem.toggle.enable()
+                userItem.light.cancelFlash()
+                
                 debugLog('Added remote WebRTC data channel')
             }
 
@@ -343,6 +360,7 @@ License: MIT
                 } = info
                 if (userItem) {
                     userItem.toggle.disable()
+                    userItem.light.cancelFlash()
                     userItem.audio.srcObject  = undefined
                     userItem.button.onpress   = undefined
                     userItem.button.onrelease = undefined
@@ -403,7 +421,7 @@ License: MIT
         {
             if (!message || !state.user || !state.user.id) return
 
-            let { register, unregister, offer, answer, messages } = message
+            let { register, unregister, offer, answer, reject } = message
 
             if (register) {
                 let { register: user, users } = message
@@ -416,9 +434,25 @@ License: MIT
             } else if (offer) {
                 let { name } = message
                 onReceiveOffer(offer, name)
+                    .catch(error => {
+                        disconnect(name)
+                        return error
+                    })
             } else if (answer) {
                 let { name } = message
                 onReceiveAnswer(answer, name)
+                    .catch(error => {
+                        disconnect(name)
+                        return error
+                    })
+            } else if (reject) {
+                let { reject: user } = message
+                let { name } = user
+                onReceiveReject(name)
+                    .catch(error => {
+                        disconnect(name)
+                        return error
+                    })
             }
         }
 
@@ -449,16 +483,35 @@ License: MIT
                 const user = users[index]
                 user.userItem = userItem
 
-                const { audio, toggle, button } = userItem
-                toggle.onenable  = onToggleEnable
-                toggle.ondisable = onToggleDisable
+                const { audio, light, toggle, button } = userItem
+                toggle.onclick = onToggleClick
+                light.onclick  = onLightClick
 
-                function onToggleEnable() {
-                    if (!state.connections[user.name]) performOffer(user.name)
+                function onToggleClick() {
+                    let info = state.connections[user.name]
+                    let { connection, offer, answer } = info || {}
+                    if (!info) {
+                        // No connection: Make an offer
+                        performOffer(user.name)
+                    } else if (offer && !connection) {
+                        // Have a connection offer: Accept offer
+                        performAnswer(offer, user.name)
+                    } else {
+                        // Connected: Disconnect
+                        disconnect(user.name)
+                        if (connection && offer && !answer) {
+                            // Other user hasn't accept connection offer
+                            sendMessage({ id: state.user.id, reject: user.name })
+                        }
+                    }
                 }
 
-                function onToggleDisable() {
-                    disconnect(user.name)
+                function onLightClick() {
+                    let { connection, offer } = state.connections[user.name] || {}
+                    if (offer && !connection) {
+                        disconnect(user.name)
+                        sendMessage({ id: state.user.id, reject: user.name })
+                    }
                 }
             })
         }
@@ -467,27 +520,28 @@ License: MIT
         async function onReceiveOffer(offer, name) {
             let sourceUser = state.users.filter(user => user.name === name)[0]
             if (!sourceUser) throw new Error(`Received offer from unknown user "${name}"... skipping`)
+
+            let { userItem } = sourceUser
+            if (!userItem) throw new Error(`Display element not found for user: ${sourceUser.name}`)
+            
+            await disconnect(name)
             offer = JSON.parse(offer)
-            return performAnswer(offer, name)
-                .then(() => {
-                    let { userItem } = sourceUser
-                    if (!userItem) throw new Error(`Display element not found for user "${sourceUser.name}"`)
-                    userItem.toggle.enable()
-                    return offer
-                })
-                .catch(error => {
-                    disconnect(name)
-                    throw error
-                })
+            state.connections[name] = { offer }
+
+            userItem.light.flash()
         }
 
 
         async function onReceiveAnswer(answer, name) {
             let sourceUser = state.users.filter(user => user.name === name)[0]
             if (!sourceUser) throw new Error(`Received answer from unknown user "${name}"... skipping`)
+
             let info = state.connections[name]
-            if (!info) throw new Error(`Received unprompted answer from user "${name}"... skipping`)
-            let { connection } = info
+            let { connection, offer } = info || {}
+            if (!info || !connection || !offer || info.answer) {
+                throw new Error(`Received unprompted answer from user "${name}"... skipping`)
+            }
+
             answer = JSON.parse(answer)
             return acceptAnswer(connection, answer)
                 .then(() => {
@@ -498,6 +552,11 @@ License: MIT
                     disconnect(name)
                     throw error
                 })
+        }
+
+
+        async function onReceiveReject(name) {
+            disconnect(name)
         }
 
 
@@ -552,12 +611,14 @@ License: MIT
             name.innerHTML     = user.name
 
             toggle.isEnabled   = function() { return this.classList.contains('on') }
-            toggle.enable      = function() { if (this.isEnabled()) return; this.classList.add('on'); if (this.onenable) this.onenable() }
-            toggle.disable     = function() { if (!this.isEnabled()) return; this.classList.remove('on'); if (this.ondisable) this.ondisable() }
-            toggle.toggle      = function() { this.isEnabled() ? this.disable() : this.enable() }
-            toggle.onclick     = function() { this.toggle() }
+            toggle.isWaiting   = function() { return this.classList.contains('waiting') }
+            toggle.isDisabled  = function() { return !this.isEnabled() && !this.isWaiting() }
+            toggle.enable      = function() { if (this.isEnabled()) return; this.classList.remove('waiting'); this.classList.add('on'); if (this.onenable) this.onenable() }
+            toggle.disable     = function() { if (!this.isEnabled() && !this.isWaiting()) return; this.classList.remove('on', 'waiting'); if (this.ondisable) this.ondisable() }
+            toggle.wait        = function() { if (this.isWaiting()) return; this.classList.remove('on'); this.classList.add('waiting'); if (this.onwait) this.onwait() }
             toggle.onenable    = undefined
             toggle.ondisable   = undefined
+            toggle.onwait      = undefined
 
             button.isPressed   = function() { return this.classList.contains('pressed') }
             button.onmousedown = function() { if (!toggle.isEnabled()) return; this.classList.add('pressed'); if (this.onpress) this.onpress() }
@@ -804,65 +865,6 @@ License: MIT
                 }
             })
         }
-
-
-        // async function _sendMessage(iframe, data, timeout=MESSAGE_TIMEOUT) {
-        //     debugLog('Sending message: ', data)
-
-        //     // Register user
-        //     // { register: name}     => { register: { id, name }, users }
-        //     // { register: name, id} => { register: { id, name }, users }
-        //     if (data.hasOwnProperty('register')) {
-        //         let { id, register:name } = data
-        //         if (!name) throw new Error('Name required')
-        //         let user = { register: id || 'you', name }
-        //         let users = [ { name }, { name: 'Other User' } ]
-        //         return { user, users }
-        //     }
-
-
-        //     // Unregister user
-        //     // { unregister: id } => undefined
-        //     if (data.hasOwnProperty('register')) {
-        //         let { id } = data
-        //         if (!id) throw new Error('User ID required')
-        //         return undefined
-        //     }
-
-
-        //     // Offer connection (from id to name)
-        //     // { id, offer, name } => undefined
-        //     if (data.hasOwnProperty('offer')) {
-        //         let { id, offer, name } = data
-        //         if (!id) throw new Error('User ID required')
-        //         if (!offer) throw new Error('Offer required')
-        //         if (!name) throw new Error('User name required')
-        //         return { id, answer: null, name }
-        //     }
-
-        //     // Answer connection offer (from id to name)
-        //     // { id, answer, name } => undefined
-        //     if (data.hasOwnProperty('answer')) {
-        //         let { id, answer, name } = data
-        //         if (!id) throw new Error('User ID required')
-        //         if (!answer) throw new Error('Answer required')
-        //         if (!name) throw new Error('User name required')
-        //         return undefined
-        //     }
-
-        //     // Wait for message(s)
-        //     // { wait: id } => undefined
-        //     // { wait: id } => { messages: [] }
-        //     //      message = { register: { name }, users }
-        //     //      message = { unregister: user, users }
-        //     //      message = { offer, name }
-        //     //      message = { answer, name }
-        //     if (data.hasOwnProperty('wait')) {
-        //         return undefined
-        //     }
-
-        //     throw new Error('Invalid message')
-        // }
 
 
         // =[ Utility ]=======================================================

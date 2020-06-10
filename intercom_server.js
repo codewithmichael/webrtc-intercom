@@ -34,6 +34,7 @@ const dataRoutes_ = {
     'unregister': unregisterRoute,  // { unregister: id }      => undefined
     'offer':      offerRoute,       // { id, offer, name }     => undefined
     'answer':     answerRoute,      // { id, answer, name }    => undefined
+    'reject':     rejectRoute,      // { id, reject: name }    => undefined
     'wait':       waitRoute,        // { wait: id }            => { messages: [] }
 }
 
@@ -185,6 +186,25 @@ async function answerRoute(connection) {
     if (!toUser) throw errorWithCode(400, "user name not found")
 
     await sendMessage(toUser.id, { answer, name: fromUser.name })
+
+    writeJsonResponse(connection.response)
+}
+
+
+// Reject connection offer
+// { id, reject: name } => undefined
+async function rejectRoute(connection) {
+    let { id, reject: name } = connection.query
+    if (!id)   throw errorWithCode(400, "user id required")
+    if (!name) throw errorWithCode(400, "user name required")
+
+    let fromUser = users_[id]
+    if (!fromUser) throw errorWithCode(400, "user id not found")
+
+    let toUser = await findUserByName(name)
+    if (!toUser) throw errorWithCode(400, "user name not found")
+
+    await sendMessage(toUser.id, { reject: { name: fromUser.name }})
 
     writeJsonResponse(connection.response)
 }
