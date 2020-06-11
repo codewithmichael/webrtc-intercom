@@ -487,6 +487,20 @@ License: MIT
                 toggle.onclick = onToggleClick
                 light.onclick  = onLightClick
 
+                let info = state.connections[user.name]
+                let { connection, offer, answer } = info || {}
+                if (offer) {
+                    if (connection) {
+                        if (answer) {
+                            userItem.toggle.enable()
+                        } else {
+                            userItem.toggle.wait()
+                        }
+                    } else {
+                        userItem.light.flash()
+                    }
+                }
+
                 function onToggleClick() {
                     let info = state.connections[user.name]
                     let { connection, offer, answer } = info || {}
