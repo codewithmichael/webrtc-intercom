@@ -76,14 +76,39 @@ License: MIT
 
 
         #user-list .light {
+            position: relative;
+            --light-off-color: #ccc;
+            --light-on-color: #6f6;
+            --light-flash-color: #6f6;
             width: 14px;
             height: 14px;
             border-radius: 14px;
-            border: 1px solid #ccc;
-            background-color: #ccc;
+            border: 1px solid var(--light-off-color);
+            background-color: var(--light-off-color);
         }
         #user-list .light.on {
-            background-color: #afa;
+            background-color: var(--light-on-color);
+        }
+        @keyframes flashing{
+            0%  { background-color: var(--light-flash-color); }
+            49% { background-color: var(--light-flash-color); }
+            50% { background-color: var(--light-off-color); }
+            100%{ background-color: var(--light-off-color); }
+        }
+        #user-list .light.flashing{
+            animation:flashing 1s infinite;
+        }
+        #user-list .light.flashing::before {
+            display: block;
+            position: absolute;
+            white-space: nowrap;
+            content: "cancel";
+            font-size: 9px;
+            line-height: 9px;
+            top: -11px;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 9px;
         }
 
 
@@ -94,6 +119,7 @@ License: MIT
             color: #fff;
             background-color: #444;
             text-align: center;
+            margin: 0 5px;
         }
         #user-list .toggle.on::before {
             content: "on";
@@ -167,7 +193,6 @@ License: MIT
             await prepareUserInterface(),
             await prepareMessaging(),
         )
-
         
         
         //-[ App ]------------------------------------------------------------
@@ -484,20 +509,24 @@ License: MIT
                 user.userItem = userItem
 
                 const { audio, light, toggle, button } = userItem
-                toggle.onclick = onToggleClick
-                light.onclick  = onLightClick
-
                 let info = state.connections[user.name]
-                let { connection, offer, answer } = info || {}
+                let { connection, offer, answer, localStream, remoteStream } = info || {}
+
+                audio.srcObject  = remoteStream
+                light.onclick    = onLightClick
+                toggle.onclick   = onToggleClick
+                button.onpress   = () => enableAudioTracks(localStream)
+                button.onrelease = () => disableAudioTracks(localStream)
+
                 if (offer) {
                     if (connection) {
                         if (answer) {
-                            userItem.toggle.enable()
+                            toggle.enable()
                         } else {
-                            userItem.toggle.wait()
+                            toggle.wait()
                         }
                     } else {
-                        userItem.light.flash()
+                        light.flash()
                     }
                 }
 
@@ -645,9 +674,9 @@ License: MIT
             light.enable       = function() { this.classList.add('on') }
             light.disable      = function() { this.classList.remove('on') }
             light.toggle       = function() { this.isEnabled() ? this.disable() : this.enable() }
-            light.isFlashing   = function() { return !!this._flashInterval }
-            light.flash        = function() { this.enable(); this._flashInterval = setInterval(() => this.toggle(), 1000) }
-            light.cancelFlash  = function() { clearInterval(this._flashInterval); delete this._flashInterval; this.disable() }
+            light.isFlashing   = function() { return this.classList.contains('flashing') }
+            light.flash        = function() { this.classList.add('flashing') }
+            light.cancelFlash  = function() { this.classList.remove('flashing') }
 
             Object.assign(userItem, { audio, name, button, toggle, light })
             
