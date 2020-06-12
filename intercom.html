@@ -22,6 +22,7 @@ License: MIT
 
         const MESSAGE_TIMEOUT   = 3000
         const LONG_POLL_TIMEOUT = 30000
+        const RECONNECT_TIMEOUT = 3000
 
         const DEBUG_LOGGING    = true
     </script>
@@ -498,8 +499,26 @@ License: MIT
                         .catch(error => {
                             if (error.name === 'AbortError') return
                             console.error(error)
+                            attempReconnect()
                             cancel()
                         })
+                }
+
+                async function attempReconnect() {
+                    const users = Object.keys(state.connections)
+                        .map(k => state.connections[k])
+                        .filter(({ offer, answer }) => offer && answer)
+                        .map(({ name }) => ({ name }))
+                    onReceiveUsers(users)
+                    debugLog('Server connection lost')
+                    let timer = setInterval(() => {
+                        register(nameInput.value)
+                            .then(() => {
+                                clearInterval(timer)
+                                debugLog('Server connection reestablished')
+                            })
+                            .catch(error => debugLog('Reconnect attempt failed'))
+                    }, RECONNECT_TIMEOUT)
                 }
             }
         }
