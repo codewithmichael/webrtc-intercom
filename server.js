@@ -14,19 +14,22 @@ var querystring = require('querystring')
 var fs = require('fs')
 
 
-const CHARSET       = 'utf-8'
-
 const USE_HTTP      = true
 const HTTP_PORT     = 8080
 
 const USE_HTTPS     = true
 const HTTPS_PORT    = 8081
+
+// Generate HTTPS (SSL) key and cert with:
+// openssl req -nodes -new -x509 -keyout server.key -out server.cert
 const HTTPS_KEY     = './server.key'
 const HTTPS_CERT    = './server.cert'
 
+const CHARSET       = 'utf-8'
+const FILE_ENCODING = 'utf8'
+
 const INTERCOM_FILE = './intercom.html'
 const SERVER_FILE   = './server.js'
-const FILE_ENCODING = 'utf8'
 
 const DEBUG_LOGGING = true
 
