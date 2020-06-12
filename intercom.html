@@ -12,7 +12,7 @@ License: MIT
     <script>
         "use strict";
         
-        const DEFAULT_USERNAME = 'My User'
+        const DEFAULT_USERNAME = ''
 
         // Messaging server info
         const PROTO  = 'http'
@@ -230,7 +230,13 @@ License: MIT
 
         // Autoconnect
         const { name } = state.user
-        if (name) await register(name)
+        if (name) {
+            await register(name)
+                .catch(error => {
+                    console.error(error)
+                    nameInput.value = state.user.name = ''
+                })
+        }
 
 
         //-[ Data ]-----------------------------------------------------------

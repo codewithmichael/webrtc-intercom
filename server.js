@@ -170,13 +170,14 @@ async function registerRoute(connection) {
     let user     = users_[id]
     let old_name = undefined
 
+    for (let user_id in users_) if (users_[user_id].name === name && id !== user_id) {
+        throw errorWithCode(400, "user name already in use")
+    }
+    
     if (user) {
         old_name = user.name
         user = Object.assign({}, user, { name, time })
     } else {
-        for (let id in users_) if (users_[id].name === name) {
-            throw errorWithCode(400, "user name already in use")
-        }
         let queue = []
         let connection = undefined
         user = { id, name, time, queue, connection }
