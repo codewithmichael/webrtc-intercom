@@ -12,6 +12,8 @@ License: MIT
     <script>
         "use strict";
         
+        const DEFAULT_USERNAME = 'My User'
+        
         // Messaging server info
         const PROTO  = 'http'
         const SERVER = 'localhost'
@@ -21,7 +23,6 @@ License: MIT
         const MESSAGE_TIMEOUT   = 3000
         const LONG_POLL_TIMEOUT = 30000
 
-        const DEFAULT_USERNAME = 'My User'
         const DEBUG_LOGGING    = true
     </script>
     <style>
@@ -171,6 +172,9 @@ License: MIT
             <span class="toggle"></span>
             <span class="name">UserName</span>
             <span class="button"></span>
+        </li>
+        <li class="no-users" data-type="template">
+            No other users connected
         </li>
     </ul>
 
@@ -562,7 +566,7 @@ License: MIT
 
         function onReceiveUsers(users) {
             users = (users || [])
-                // .filter(user => user.id !== state.user.id)
+                .filter(user => user.name !== state.user.name)
                 .map(toUser)
             state.users = users
             let userItems = state.userItems = updateUserItems(users)
@@ -693,10 +697,12 @@ License: MIT
             const nameInput = document.querySelector('#name-input')
             const userList  = document.querySelector('#user-list')
             const templates = {
-                userItem: userList.querySelector('.user-item[data-type="template"]')
+                userItem: userList.querySelector('.user-item[data-type="template"]'),
+                noUsers:  userList.querySelector('.no-users[data-type="template"]'),
             }
             Object.keys(templates).forEach(k => { templates[k].remove() })
-            const updateUserItems = users => _updateUserItems(users, userList, templates.userItem)
+            const updateUserItems = users => _updateUserItems(
+                users, userList, templates.userItem, templates.noUsers)
 
             nameInput.onfocus = onNameInputFocus
             nameInput.onkeydown = onNameInputKeyDown
@@ -716,11 +722,18 @@ License: MIT
         }
 
         
-        function _updateUserItems(users, userList, userItemTemplate) {
+        function _updateUserItems(users, userList, userItemTemplate, noUsersTemplate) {
             userList.innerHTML = ''
-            return (users || [])
-                .map(user => _createUserItem(user, userItemTemplate))
-                .map(userItem => (userList.appendChild(userItem), userItem))
+            if (!users || !users.length) {
+                const noUsers = noUsersTemplate.cloneNode(true)
+                delete noUsers.dataset.type
+                userList.appendChild(noUsers)
+                return []
+            } else {
+                return (users || [])
+                    .map(user => _createUserItem(user, userItemTemplate))
+                    .map(userItem => (userList.appendChild(userItem), userItem))
+            }
         }
 
 
@@ -771,6 +784,7 @@ License: MIT
 
 
         async function prepareInputAudioStream() {
+            if (!navigator.mediaDevices) throw new Error("No media devices available")
             const inputAudioStream = await navigator.mediaDevices
                 .getUserMedia({ audio: true })
                 .then(stream => {
