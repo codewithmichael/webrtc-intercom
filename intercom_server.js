@@ -10,16 +10,28 @@
 var http = require('http')
 var url = require('url')
 var querystring = require('querystring')
+var fs = require('fs')
 
 
 const PORT = 8080
 const CHARSET = 'utf-8'
+const INTERCOM_FILE = './intercom.html'
+const FILE_ENCODING = 'utf8'
 const DEBUG_LOGGING = true
 
 
 // connection format: { time, request, response, pathname, get, post, query }
 // user format: { id, name, time, queue=[], connection=undefined }
 const users_ = {}  // key=user_id, value=user
+
+// Cache HTML file contents
+let intercom_
+try {
+    intercom_ = fs.readFileSync(INTERCOM_FILE, {encoding: FILE_ENCODING})
+} catch (error) {
+    console.log(`Unable to load intercom file "${INTERCOM_FILE}".`)
+    console.log(`"/intercom" route will not be available.`)
+}
 
 
 // =[ Routing ]===============================================================
@@ -28,6 +40,7 @@ const users_ = {}  // key=user_id, value=user
 const routes_ = {
     '/':           rootRoute,
     '/jsonLoader': jsonLoaderRoute,
+    '/intercom':   intercomRoute,
 }
 const dataRoutes_ = {
     'register':   registerRoute,    // { register: name, id? } => { register: { name, id }, users }
@@ -78,6 +91,19 @@ async function rootRoute(connection) {
 async function jsonLoaderRoute(connection) {
     const javascript = `(${jsonLoader.toString()})()`
     writeHtmlResponse(connection.response, wrapAsHtmlScript(javascript))
+}
+
+
+async function intercomRoute(connection) {
+    if (!intercom_) throw errorWithCode(404, "page not found")
+    const [host, port] = connection.request.headers.host.split(':')
+    let html = intercom_.replace(
+        /\bconst\s+SERVER\s+=\s+[^\r\n;]+/,
+        `const SERVER = '${host}'`)
+    if (port) html = html.replace(
+        /\bconst\s+PORT\s+=\s+[^\r\n;]+/,
+        `const PORT = ${port || PORT}`)
+    writeHtmlResponse(connection.response, html)
 }
 
 
