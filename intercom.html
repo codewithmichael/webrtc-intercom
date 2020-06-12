@@ -271,16 +271,17 @@ License: MIT
             disableAudioTracks(localStream)
 
             userItem.toggle.wait()
-            userItem.button.onpress   = () => enableAudioTracks(localStream)
-            userItem.button.onrelease = () => disableAudioTracks(localStream)
+            userItem.button.onpress   = onPress
+            userItem.button.onrelease = onRelease
 
-            const info = {}
+            const info = { name }
             Object.assign(info, await createOfferConnection(localStream, onTrack))
             state.connections[name] = info
 
             const { connection, dataChannel, offer } = info
             dataChannel.onopen  = onOpen
             dataChannel.onclose = onClose
+            dataChannel.onmessage = onMessage
 
             const message = {
                 id: state.user.id,
@@ -312,6 +313,35 @@ License: MIT
                 debugLog(`Data connection closed for user: ${name}`)
                 disconnect(name)
             }
+
+            function onMessage(event) {
+                let { data } = event
+                if (!data) return
+                let { name } = info
+                let { userItem } = state.users.filter(u => u.name === name)[0] || {}
+                switch (data) {
+                    case "begin_talk":
+                        info.isTalking = true
+                        if (userItem) userItem.light.enable()
+                        break;
+                    case "end_talk":
+                        info.isTalking = false
+                        if (userItem) userItem.light.disable()
+                        break;
+                    default:
+                        console.error(`Unknown data channel message received: "${data}"`)
+                }
+            }
+
+            function onPress(event) {
+                enableAudioTracks(localStream)
+                dataChannel.send("begin_talk")
+            }
+
+            function onRelease(event) {
+                disableAudioTracks(localStream)
+                dataChannel.send("end_talk")
+            }
         }
 
 
@@ -326,10 +356,10 @@ License: MIT
             const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
             disableAudioTracks(localStream)
                         
-            userItem.button.onpress   = () => enableAudioTracks(localStream)
-            userItem.button.onrelease = () => disableAudioTracks(localStream)
+            userItem.button.onpress   = onPress
+            userItem.button.onrelease = onRelease
 
-            const info = {} // must exist before calling createAnswerConneciton (for onTrack)
+            const info = { name } // must exist before calling createAnswerConneciton (for onTrack)
             Object.assign(info, await createAnswerConnection(offer, localStream, onTrack, onDataChannel))
             state.connections[name] = info
 
@@ -348,6 +378,7 @@ License: MIT
             function onDataChannel(event) {
                 info.dataChannel = event.channel
                 info.dataChannel.onclose = onClose
+                info.dataChannel.onmessage = onMessage
 
                 userItem.toggle.enable()
                 userItem.light.cancelFlash()
@@ -367,6 +398,37 @@ License: MIT
             function onClose(event) {
                 debugLog(`Data connection closed for user: ${name}`)
                 disconnect(name)
+            }
+
+            function onMessage(event) {
+                let { data } = event
+                if (!data) return
+                let { name } = info
+                let { userItem } = state.users.filter(u => u.name === name)[0] || {}
+                switch (data) {
+                    case "begin_talk":
+                        info.isTalking = true
+                        if (userItem) userItem.light.enable()
+                        break;
+                    case "end_talk":
+                        info.isTalking = false
+                        if (userItem) userItem.light.disable()
+                        break;
+                    default:
+                        console.error(`Unknown data channel message received: "${data}"`)
+                }
+            }
+
+            function onPress(event) {
+                let { localStream, dataChannel } = info || {}
+                if (localStream) enableAudioTracks(localStream)
+                if (dataChannel) dataChannel.send("begin_talk")
+            }
+
+            function onRelease(event) {
+                let { localStream, dataChannel } = info || {}
+                if (localStream) disableAudioTracks(localStream)
+                if (dataChannel) dataChannel.send("end_talk")
             }
         }
 
@@ -491,6 +553,7 @@ License: MIT
             } else if (old_name) {
                 if (state.connections[old_name]) {
                     state.connections[name] = state.connections[old_name]
+                    state.connections[name].name = name
                     delete state.connections[old_name]
                 }
             }
@@ -510,13 +573,21 @@ License: MIT
 
                 const { audio, light, toggle, button } = userItem
                 let info = state.connections[user.name]
-                let { connection, offer, answer, localStream, remoteStream } = info || {}
+                let {
+                    connection,
+                    offer,
+                    answer,
+                    remoteStream,
+                    isTalking
+                } = info || {}
 
                 audio.srcObject  = remoteStream
                 light.onclick    = onLightClick
                 toggle.onclick   = onToggleClick
-                button.onpress   = () => enableAudioTracks(localStream)
-                button.onrelease = () => disableAudioTracks(localStream)
+                button.onpress   = onButtonPress
+                button.onrelease = onButtonRelease
+
+                if (isTalking) light.enable()
 
                 if (offer) {
                     if (connection) {
@@ -555,6 +626,18 @@ License: MIT
                         disconnect(user.name)
                         sendMessage({ id: state.user.id, reject: user.name })
                     }
+                }
+
+                function onButtonPress(event) {
+                    let { localStream, dataChannel } = state.connections[user.name] || {}
+                    if (localStream) enableAudioTracks(localStream)
+                    if (dataChannel) dataChannel.send("begin_talk")
+                }
+
+                function onButtonRelease(event) {
+                    let { localStream, dataChannel } = state.connections[user.name] || {}
+                    if (localStream) disableAudioTracks(localStream)
+                    if (dataChannel) dataChannel.send("end_talk")
                 }
             })
         }
