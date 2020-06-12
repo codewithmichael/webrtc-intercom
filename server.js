@@ -8,16 +8,24 @@
 "use strict";
 
 var http = require('http')
+var https = require('https')
 var url = require('url')
 var querystring = require('querystring')
 var fs = require('fs')
 
 
-const PORT = 8080
-const CHARSET = 'utf-8'
+const CHARSET       = 'utf-8'
+
+const USE_HTTP      = true
+const HTTP_PORT     = 8080
+
+const USE_HTTPS     = true
+const HTTPS_PORT    = 8081
+const HTTPS_KEY     = './server.key'
+const HTTPS_CERT    = './server.cert'
 
 const INTERCOM_FILE = './intercom.html'
-const SERVER_FILE = './server.js'
+const SERVER_FILE   = './server.js'
 const FILE_ENCODING = 'utf8'
 
 const DEBUG_LOGGING = true
@@ -63,16 +71,35 @@ const dataRoutes_ = {
 }
 
 
-http.createServer(function (request, response) {
+if (USE_HTTP) {
+    http.createServer(serverHandler).listen(HTTP_PORT)
+    console.log(`Listening on port: ${HTTP_PORT} (HTTP)`)
+}
+
+if (USE_HTTPS) {
+    let serverOptions
+    try {
+        serverOptions = {
+            key:  fs.readFileSync(HTTPS_KEY),
+            cert: fs.readFileSync(HTTPS_CERT),
+        }
+    } catch (error) {
+        console.error('Disabling HTTPS (unable to load SSL key/cert)')
+    }
+    if (serverOptions) {
+        https.createServer(serverOptions, serverHandler).listen(HTTPS_PORT)
+        console.log(`Listening on port: ${HTTPS_PORT} (HTTPS)`)
+    }
+}
+
+
+function serverHandler(request, response) {
     routeRequest(request, response)
         .catch(error => {
             if (!error.code) console.error(error)
             writeErrorResponse(response, error.code || 500, error.message)
         })
-}).listen(PORT)
-
-
-console.log(`Listening on port: ${PORT}`)
+}
 
 
 async function routeRequest(request, response) {
@@ -107,13 +134,17 @@ async function jsonLoaderRoute(connection) {
 
 async function intercomRoute(connection) {
     if (!intercom_) throw errorWithCode(404, "page not found")
+    const isHttps = connection.request.connection.encrypted
     const [host, port] = connection.request.headers.host.split(':')
     let html = intercom_.replace(
         /\bconst\s+SERVER\s+=\s+[^\r\n;]+/,
         `const SERVER = '${host}'`)
     if (port) html = html.replace(
         /\bconst\s+PORT\s+=\s+[^\r\n;]+/,
-        `const PORT = ${port || PORT}`)
+        `const PORT = ${port || (isHttps ? HTTPS_PORT : HTTP_PORT)}`)
+    if (USE_HTTPS) html = html.replace(
+        /\bconst\s+PROTO\s+=\s+[^\r\n;]+/,
+        `const PROTO = '${isHttps ? 'https' : 'http'}'`)
     writeHtmlResponse(connection.response, html)
 }
 

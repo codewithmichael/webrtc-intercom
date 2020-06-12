@@ -13,7 +13,7 @@ License: MIT
         "use strict";
         
         const DEFAULT_USERNAME = 'My User'
-        
+
         // Messaging server info
         const PROTO  = 'http'
         const SERVER = 'localhost'
@@ -945,7 +945,7 @@ License: MIT
 
 
         async function prepareMessaging() {
-            const url = `${PROTO}://${SERVER}${PORT ? ':' + PORT : ''}${PATH}`
+            const url = (PROTO ? `${PROTO}:` : '') + `//${SERVER}${PORT ? ':' + PORT : ''}${PATH}`
             const iframe = await createAndLoadMessagingIframe(url)
             const sendMessage = (data, timeout) => _sendMessage(iframe, data, timeout)
             return {
