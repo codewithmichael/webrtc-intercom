@@ -298,7 +298,7 @@ async function sendMessage(user_id, data) {
 async function sendMessageToAll(data, exclude_user_id=undefined) {
     // Send or enqueue the message to all users (except excluded)
     for (let user_id in users_) if (users_.hasOwnProperty(user_id)) {
-        if (user_id === exclude_user_id) return
+        if (user_id === exclude_user_id) continue
         await sendMessage(user_id, data)
     }
 }
