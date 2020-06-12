@@ -15,8 +15,11 @@ var fs = require('fs')
 
 const PORT = 8080
 const CHARSET = 'utf-8'
+
 const INTERCOM_FILE = './intercom.html'
+const SERVER_FILE = './server.js'
 const FILE_ENCODING = 'utf8'
+
 const DEBUG_LOGGING = true
 
 
@@ -24,13 +27,20 @@ const DEBUG_LOGGING = true
 // user format: { id, name, time, queue=[], connection=undefined }
 const users_ = {}  // key=user_id, value=user
 
-// Cache HTML file contents
+// Cache intercom and server file contents
 let intercom_
+let server_
 try {
     intercom_ = fs.readFileSync(INTERCOM_FILE, {encoding: FILE_ENCODING})
 } catch (error) {
     console.log(`Unable to load intercom file "${INTERCOM_FILE}".`)
     console.log(`"/intercom" route will not be available.`)
+}
+try {
+    server_ = fs.readFileSync(SERVER_FILE, {encoding: FILE_ENCODING})
+} catch (error) {
+    console.log(`Unable to load server file "${SERVER_FILE}".`)
+    console.log(`"/server" route will not be available.`)
 }
 
 
@@ -41,6 +51,7 @@ const routes_ = {
     '/':           rootRoute,
     '/jsonLoader': jsonLoaderRoute,
     '/intercom':   intercomRoute,
+    '/server':     serverRoute,
 }
 const dataRoutes_ = {
     'register':   registerRoute,    // { register: name, id? } => { register: { name, id }, users }
@@ -104,6 +115,12 @@ async function intercomRoute(connection) {
         /\bconst\s+PORT\s+=\s+[^\r\n;]+/,
         `const PORT = ${port || PORT}`)
     writeHtmlResponse(connection.response, html)
+}
+
+
+async function serverRoute(connection) {
+    if (!server_) throw errorWithCode(404, "page not found")
+    writeJavascriptResponse(connection.response, server_)
 }
 
 
@@ -337,6 +354,13 @@ async function sendMessageToAll(data, exclude_user_id=undefined) {
 function writeHtmlResponse(response, str) {
     // Respond with an HTML document
     response.writeHead(200, {'Content-Type': 'text/html', CHARSET});
+    response.end(str)
+}
+
+
+function writeJavascriptResponse(response, str) {
+    // Respond with a JavaScript document
+    response.writeHead(200, {'Content-Type': 'text/javascript', CHARSET});
     response.end(str)
 }
 
