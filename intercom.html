@@ -27,7 +27,6 @@ License: MIT
         const DEBUG_LOGGING    = true
     </script>
     <style>
-
         :root {
             --wallpaper-dark: #dfa849;
             --wallpaper-light: #e7bd74;
@@ -43,6 +42,12 @@ License: MIT
             --switch-off-image: url('assets/switch-off.png');
             --switch-center-on-image: url('assets/switch-center.png');
             --switch-center-off-image: url('assets/switch-off.png');
+            
+            --connected-light-off-image: url('assets/connected-light-off.png');
+            --connected-light-on-image: url('assets/connected-light-on.png');
+            
+            --talk-light-off-image: url('assets/talk-light-off.png');
+            --talk-light-on-image: url('assets/talk-light-on.png');
         }
 
         * {
@@ -162,6 +167,7 @@ License: MIT
         }
         
         
+        #user-list .not-connected,
         #user-list .no-users {
             text-align: center;
             padding: 10px;
@@ -205,14 +211,14 @@ License: MIT
         #user-list .light.on {
             background-image: var(--light-on-image);
         }
-        @keyframes flashing{
+        @keyframes light-flashing{
             0%  { background-image: var(--light-flash-image); }
             49% { background-image: var(--light-flash-image); }
             50% { background-image: var(--light-off-image); }
             100%{ background-image: var(--light-off-image); }
         }
         #user-list .light.flashing {
-            animation: flashing 1s infinite;
+            animation: light-flashing 1s infinite;
         }
         #user-list .light.flashing:hover::before {
             display: block;
@@ -243,14 +249,14 @@ License: MIT
         #user-list .toggle.on {
             background-image: var(--switch-on-image);
         }
-        @keyframes waiting {
+        @keyframes toggle-waiting {
             0%  { background-image: var(--switch-center-on-image); }
             49% { background-image: var(--switch-center-on-image); }
             50% { background-image: var(--switch-center-off-image); }
             100%{ background-image: var(--switch-center-off-image); }
         }
         #user-list .toggle.waiting {
-            /* animation: waiting 1s infinite; */
+            /* animation: toggle-waiting 1s infinite; */
             background-image: var(--switch-center-on-image)
         }
         
@@ -305,7 +311,92 @@ License: MIT
             padding: 0 5px 0 26px;
             z-index: -1;
         }
-        
+
+
+        #connected-light {
+            display: block;
+            position: absolute;
+            top: 15px;
+            left: 8px;
+            width: 76px;
+            height: 72px;
+            background: var(--connected-light-off-image) top left / 76px 72px no-repeat;
+        }
+        #connected-light:hover::before {
+            display: block;
+            position: absolute;
+            white-space: nowrap;
+            content: "click to connect";
+            color: #fff;
+            font-size: 10px;
+            line-height: 10px;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 10px;
+            border: 1px solid #fff;
+            background-color: #222;
+            padding: 2px;
+        }
+        #connected-light.on {
+            background-image: var(--connected-light-on-image)
+        }
+        #connected-light.on:hover::before {
+            display: block;
+            position: absolute;
+            white-space: nowrap;
+            content: "click to disconnect";
+            color: #fff;
+            font-size: 10px;
+            line-height: 10px;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 10px;
+            border: 1px solid #fff;
+            background-color: #222;
+            padding: 2px;
+        }
+        @keyframes connected-light-flashing {
+            0%  { background-image: var(--connected-light-on-image); }
+            24% { background-image: var(--connected-light-on-image); }
+            25% { background-image: var(--connected-light-off-image); }
+            100%{ background-image: var(--connected-light-off-image); }
+        }
+        #connected-light.flashing {
+            animation: connected-light-flashing 3s infinite;
+        }
+        #connected-light.flashing:hover::before {
+            display: block;
+            position: absolute;
+            white-space: nowrap;
+            content: "reconnecting...";
+            color: #fff;
+            font-size: 10px;
+            line-height: 10px;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 10px;
+            border: 1px solid #fff;
+            background-color: #222;
+            padding: 2px;
+        }
+
+
+        #talk-light {
+            display: block;
+            position: absolute;
+            bottom: 5px;
+            left: 7px;
+            width: 91px;
+            height: 91px;
+            background: var(--talk-light-off-image) top left / 91px 91px no-repeat;
+        }
+        #talk-light.on {
+            background-image: var(--talk-light-on-image)
+        }
+
     </style>
 </head>
 <body>
@@ -313,6 +404,8 @@ License: MIT
     <div id="faceplate">
         <input id="name-input" type="text" placeholder="Enter User Name"/>
         <ul id="user-list">
+            <li class="not-connected" data-type="template">Not connected</li>
+            <li class="no-users" data-type="template">No other users connected</li>
             <li class="user-item" data-type="template">
                 <audio autoplay></audio>
                 <span class="toggle"></span>
@@ -320,11 +413,9 @@ License: MIT
                 <span class="name">UserName</span>
                 <span class="button"></span>
             </li>
-            <li class="no-users" data-type="template">
-                No other users connected
-            </li>
-            <li class="no-users">. . .</li>
         </ul>
+        <span id="connected-light"></span>
+        <span id="talk-light"></span>
     </div>
 
 
@@ -339,6 +430,8 @@ License: MIT
             inputAudioStream,
             nameInput,
             userList,
+            connectedLight,
+            talkLight,
             updateUserItems,
             sendMessage,
         } = Object.assign(this,
@@ -360,6 +453,9 @@ License: MIT
         // Mute microphone by default
         disableAudioTracks(inputAudioStream)
 
+        // Initialize empty user list
+        updateUserItems()
+
         // Handle name change
         if (nameInput.value) {
             nameInput.value = nameInput.value.trim()
@@ -373,6 +469,7 @@ License: MIT
                 .catch(error => {
                     console.error(error)
                     nameInput.value = state.user.name || ''
+                    nameInput.focus()
                 })
         }
 
@@ -386,6 +483,21 @@ License: MIT
                 })
         } else {
             nameInput.focus()
+        }
+
+        // Manual disconnect/reconnect
+        connectedLight.onclick = async function() {
+            if (state.user.id) {
+                sendMessage({ unregister: state.user.id  })
+                cancelLoopWait()
+                Object.keys(state.connections).forEach(name => disconnect(name))
+                state.user.id = undefined
+                onReceiveUsers([])
+                connectedLight.disable()
+            } else {
+                // Trigger a name registration attempt
+                nameInput.onblur()
+            }
         }
 
 
@@ -415,6 +527,7 @@ License: MIT
                     onReceiveUsers(users)
                 })
                 .then(() => {
+                    connectedLight.enable()
                     loopWait() // not returned!
                 })
         }
@@ -467,7 +580,6 @@ License: MIT
 
             function onOpen(event) {
                 userItem.toggle.enable()
-                userItem.light.cancelFlash()
                 userItem.light.enable()
 
                 userItem.button.onpress   = onPress
@@ -500,11 +612,13 @@ License: MIT
 
             function onPress(event) {
                 enableAudioTracks(localStream)
+                talkLight.enable()
                 if (dataChannel) dataChannel.send("begin_talk")
             }
 
             function onRelease(event) {
                 disableAudioTracks(localStream)
+                talkLight.disable()
                 if (dataChannel) dataChannel.send("end_talk")
             }
         }
@@ -543,7 +657,6 @@ License: MIT
                 info.dataChannel.onmessage = onMessage
 
                 userItem.toggle.enable()
-                userItem.light.cancelFlash()
                 userItem.light.enable()
 
                 userItem.button.onpress   = onPress
@@ -587,13 +700,19 @@ License: MIT
 
             function onPress(event) {
                 let { localStream, dataChannel } = info || {}
-                if (localStream) enableAudioTracks(localStream)
-                if (dataChannel) dataChannel.send("begin_talk")
+                if (localStream) {
+                    enableAudioTracks(localStream)
+                    talkLight.enable()
+                }
+                if (dataChannel) {
+                    dataChannel.send("begin_talk")
+                }
             }
 
             function onRelease(event) {
                 let { localStream, dataChannel } = info || {}
                 if (localStream) disableAudioTracks(localStream)
+                talkLight.disable()
                 if (dataChannel) dataChannel.send("end_talk")
             }
         }
@@ -613,7 +732,6 @@ License: MIT
                 } = info
                 if (userItem) {
                     userItem.toggle.disable()
-                    userItem.light.cancelFlash()
                     userItem.light.disable()
                     userItem.audio.srcObject  = undefined
                     userItem.button.onpress   = undefined
@@ -632,8 +750,9 @@ License: MIT
 
         var _cancelLoopWait
         function cancelLoopWait() {
-            if (_cancelLoopWait) _cancelLoopWait()
-            _cancelLoopWait = undefined
+            if (!_cancelLoopWait) _cancelLoopWait = []
+            _cancelLoopWait.forEach(cancel => cancel())
+            _cancelLoopWait.length = 0
         }
 
 
@@ -641,7 +760,7 @@ License: MIT
             let cancelled = false
 
             cancelLoopWait()
-            _cancelLoopWait = cancel
+            _cancelLoopWait.push(cancel)
             return startLoop()
 
             function cancel() {
@@ -661,12 +780,19 @@ License: MIT
                         .catch(error => {
                             if (error.name === 'AbortError') return
                             console.error(error)
-                            attempReconnect()
+                            connectedLight.disable()
                             cancel()
+                            attempReconnect()
                         })
                 }
 
                 async function attempReconnect() {
+                    let cancelledReconnect = false
+
+                    cancelLoopWait()
+                    _cancelLoopWait.push(cancelReconnect)
+
+                    connectedLight.flash()
                     const users = Object.keys(state.connections)
                         .map(k => state.connections[k])
                         .filter(({ offer, answer }) => offer && answer)
@@ -674,13 +800,22 @@ License: MIT
                     onReceiveUsers(users)
                     debugLog('Server connection lost')
                     let timer = setInterval(() => {
+                        if (cancelledReconnect) {
+                            clearInterval(timer)
+                            return
+                        }
                         register(nameInput.value)
                             .then(() => {
                                 clearInterval(timer)
+                                connectedLight.enable()
                                 debugLog('Server connection reestablished')
                             })
                             .catch(error => debugLog('Reconnect attempt failed'))
                     }, RECONNECT_TIMEOUT)
+
+                    function cancelReconnect() {
+                        cancelledReconnect = true
+                    }
                 }
             }
         }
@@ -750,7 +885,7 @@ License: MIT
                 .filter(user => user.name !== state.user.name)
                 .map(toUser)
             state.users = users
-            let userItems = state.userItems = updateUserItems(users)
+            let userItems = state.userItems = updateUserItems(state.user, users)
 
             userItems.forEach((userItem, index) => {
                 const user = users[index]
@@ -822,13 +957,17 @@ License: MIT
 
                 function onButtonPress(event) {
                     let { localStream, dataChannel } = state.connections[user.name] || {}
-                    if (localStream) enableAudioTracks(localStream)
+                    if (localStream) {
+                        enableAudioTracks(localStream)
+                        talkLight.enable()
+                    }
                     if (dataChannel) dataChannel.send("begin_talk")
                 }
 
                 function onButtonRelease(event) {
                     let { localStream, dataChannel } = state.connections[user.name] || {}
                     if (localStream) disableAudioTracks(localStream)
+                    talkLight.disable()
                     if (dataChannel) dataChannel.send("end_talk")
                 }
             })
@@ -882,21 +1021,43 @@ License: MIT
 
 
         async function prepareUserInterface() {
-            const nameInput = document.querySelector('#name-input')
-            const userList  = document.querySelector('#user-list')
-            const templates = {
-                userItem: userList.querySelector('.user-item[data-type="template"]'),
-                noUsers:  userList.querySelector('.no-users[data-type="template"]'),
-            }
-            Object.keys(templates).forEach(k => { templates[k].remove() })
-            const updateUserItems = users => _updateUserItems(
-                users, userList, templates.userItem, templates.noUsers)
+            const nameInput      = document.querySelector('#name-input')
+            const userList       = document.querySelector('#user-list')
+            const connectedLight = document.querySelector('#connected-light')
+            const talkLight      = document.querySelector('#talk-light')
 
-            nameInput.onfocus = onNameInputFocus
+            const templates = {
+                userItem:     userList.querySelector('.user-item[data-type="template"]'),
+                notConnected: userList.querySelector('.not-connected[data-type="template"]'),
+                noUsers:      userList.querySelector('.no-users[data-type="template"]'),
+            }
+
+            Object.keys(templates).forEach(k => { templates[k].remove() })
+            const updateUserItems = (user, users) => _updateUserItems(
+                user, users, userList, templates.userItem, templates.noUsers, templates.notConnected)
+
+            nameInput.onfocus   = onNameInputFocus
             nameInput.onkeydown = onNameInputKeyDown
 
+            connectedLight.isEnabled    = function() { return this.classList.contains('on') }
+            connectedLight.enable       = function() { this.cancelFlash(); this.classList.add('on') }
+            connectedLight.disable      = function() { this.cancelFlash(); this.classList.remove('on') }
+            connectedLight.toggle       = function() { this.isEnabled() ? this.disable() : this.enable() }
+            connectedLight.isFlashing   = function() { return this.classList.contains('flashing') }
+            connectedLight.flash        = function() { this.classList.remove('on'); this.classList.add('flashing') }
+            connectedLight.cancelFlash  = function() { this.classList.remove('flashing') }
+
+            talkLight.isEnabled         = function() { return this.classList.contains('on') }
+            talkLight.enable            = function() { this.cancelFlash(); this.classList.add('on') }
+            talkLight.disable           = function() { this.cancelFlash(); this.classList.remove('on') }
+            talkLight.toggle            = function() { this.isEnabled() ? this.disable() : this.enable() }
+            talkLight.isFlashing        = function() { return this.classList.contains('flashing') }
+            talkLight.flash             = function() { this.classList.remove('on'); this.classList.add('flashing') }
+            talkLight.cancelFlash       = function() { this.classList.remove('flashing') }
+
             return {
-                templates, nameInput, userList,
+                templates,
+                nameInput, userList, connectedLight, talkLight,
                 updateUserItems
             }
             
@@ -910,10 +1071,14 @@ License: MIT
         }
 
         
-        function _updateUserItems(users, userList, userItemTemplate, noUsersTemplate) {
+        function _updateUserItems(user, users, userList,
+            userItemTemplate, noUsersTemplate, notConnectedTemplate)
+        {
             userList.innerHTML = ''
             if (!users || !users.length) {
-                const noUsers = noUsersTemplate.cloneNode(true)
+                const noUsers = user && user.id ?
+                    noUsersTemplate.cloneNode(true) :
+                    notConnectedTemplate.cloneNode(true)
                 delete noUsers.dataset.type
                 userList.appendChild(noUsers)
                 return []
@@ -958,11 +1123,11 @@ License: MIT
             button.unhighlight   = function() { return this.classList.remove('highlight') }
             
             light.isEnabled    = function() { return this.classList.contains('on') }
-            light.enable       = function() { this.classList.add('on') }
-            light.disable      = function() { this.classList.remove('on') }
+            light.enable       = function() { this.cancelFlash(); this.classList.add('on') }
+            light.disable      = function() { this.cancelFlash(); this.classList.remove('on') }
             light.toggle       = function() { this.isEnabled() ? this.disable() : this.enable() }
             light.isFlashing   = function() { return this.classList.contains('flashing') }
-            light.flash        = function() { this.classList.add('flashing') }
+            light.flash        = function() { this.classList.remove('on'); this.classList.add('flashing') }
             light.cancelFlash  = function() { this.classList.remove('flashing') }
 
             Object.assign(userItem, { audio, name, button, toggle, light })
