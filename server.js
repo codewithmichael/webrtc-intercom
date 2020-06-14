@@ -57,7 +57,7 @@ try {
 
 // =[ Routing ]===============================================================
 
-
+const assetRegex = new RegExp('/assets/[^./]*.png')
 const routes_ = {
     '/':           rootRoute,
     '/jsonLoader': jsonLoaderRoute,
@@ -110,6 +110,8 @@ async function routeRequest(request, response) {
     const route = routes_[connection.pathname]
     if (route) {
         await route(connection)
+    } else if (connection.pathname.match(assetRegex)) {
+        await assetRoute(connection)
     } else {
         debugLog('Page not found: ' + connection.pathname)
         throw errorWithCode(404, "page not found")
@@ -119,6 +121,17 @@ async function routeRequest(request, response) {
 
 
 // =[ Routes ]================================================================
+
+
+async function assetRoute(connection) {
+    server_ = fs.readFile('.' + connection.pathname, (error, data) => {
+        if (error) {
+            throw errorWithCode(404, "file not found")
+        } else {
+            writePngResponse(connection.response, data)
+        }
+    })
+}
 
 
 async function rootRoute(connection) {
@@ -173,7 +186,7 @@ async function registerRoute(connection) {
     for (let user_id in users_) if (users_[user_id].name === name && id !== user_id) {
         throw errorWithCode(400, "user name already in use")
     }
-    
+
     if (user) {
         old_name = user.name
         user = Object.assign({}, user, { name, time })
@@ -388,28 +401,35 @@ async function sendMessageToAll(data, exclude_user_id=undefined) {
 
 function writeHtmlResponse(response, str) {
     // Respond with an HTML document
-    response.writeHead(200, {'Content-Type': 'text/html', CHARSET});
+    response.writeHead(200, {'Content-Type': 'text/html', charset: CHARSET});
     response.end(str)
 }
 
 
 function writeJavascriptResponse(response, str) {
     // Respond with a JavaScript document
-    response.writeHead(200, {'Content-Type': 'text/javascript', CHARSET});
+    response.writeHead(200, {'Content-Type': 'text/javascript', charset: CHARSET});
     response.end(str)
 }
 
 
 function writeJsonResponse(response, obj) {
     // Respond with a JSON object
-    response.writeHead(200, {'Content-Type': 'application/json', CHARSET});
+    response.writeHead(200, {'Content-Type': 'application/json', charset: CHARSET});
     response.end(obj ? JSON.stringify(obj) : undefined);
+}
+
+
+function writePngResponse(response, imageData) {
+    // Respond with a PNG document
+    response.writeHead(200, {'Content-Type': 'image/png'});
+    response.end(imageData)
 }
 
 
 function writeErrorResponse(response, code, description) {
     // Respond with an error code and message
-    response.writeHead(code, description, {'Content-Type': 'text/plain', CHARSET});
+    response.writeHead(code, description, {'Content-Type': 'text/plain', chatset: CHARSET});
     response.end();
 }
 

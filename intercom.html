@@ -27,157 +27,305 @@ License: MIT
         const DEBUG_LOGGING    = true
     </script>
     <style>
+
+        :root {
+            --wallpaper-dark: #dfa849;
+            --wallpaper-light: #e7bd74;
+
+            --faceplate-image: url('assets/metal.png');
+            --faceplate-holes-image: url('assets/holes.png');
+
+            --light-off-image: url('assets/light-off.png');
+            --light-on-image: url('assets/light-on.png');
+            --light-flash-image: url('assets/light-on.png');
+
+            --switch-on-image: url('assets/switch-on.png');
+            --switch-off-image: url('assets/switch-off.png');
+            --switch-center-on-image: url('assets/switch-center.png');
+            --switch-center-off-image: url('assets/switch-off.png');
+        }
+
         * {
             font-family: Arial, Helvetica, sans-serif;
             user-select: none;
         }
-
-
+        
+        
+        html {
+            background: repeating-linear-gradient(
+                to right,
+                var(--wallpaper-light),
+                var(--wallpaper-dark) 2px,
+                var(--wallpaper-dark) 108px,
+                var(--wallpaper-light) 110px,
+                var(--wallpaper-light) 150px
+            );
+        }
+        
+        
         [data-type="template"] {
             display: none !important;
         }
-
-
-        #name-input {
+        
+        
+        #faceplate {
             display: block;
-            outline: none;
-            padding: 0;
-            border: 0;
-            border-bottom: 1px solid #ccc;
-            font-size: 16px;
-            user-select: text;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-image: var(--faceplate-image);
+            background-position: left top;
+            width: 650px;
+            height: 500px;
+            border-radius: 10px;
+            box-shadow: 2px 10px 15px -5px;
+        }
+        #faceplate::before {
+            content: '';
+            display: block;
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            border: 10px solid #000;
+            border-top: 10px solid #f7f7ce;
+            border-left: 10px solid #f7f78c;
+            border-radius: 10px;
+            opacity: 0.1
+        }
+        #faceplate::after {
+            content: '';
+            display: block;
+            position: absolute;
+            background-image: var(--faceplate-holes-image);
+            width: 299px;
+            height: 292px;
+            top: 60px;
+            left: 50px
         }
         
-
+        
+        #name-input {
+            display: block;
+            position: absolute;
+            width: 300px;
+            top: 25px;
+            right: 65px;
+            outline: none;
+            border: 0;
+            border-bottom: 1px solid rgba(100, 100, 50, .2);
+            font-size: 26px;
+            user-select: text;
+            background-color: transparent;
+            text-align: right;
+        
+            font-weight: bold;
+            color: #000c;
+            text-shadow:
+                -1px -1px 3px #fff3,
+                1px 2px 2px #0006,
+                1px 2px 10px #fff6;
+        }
+        #name-input::placeholder {
+            color: #000c;
+            opacity: 1;
+        }
+        
+        
         #user-list {
-            display: inline-block;
+            display: block;
+            position: absolute;
+            right: 0px;
+            top: 60px;
             list-style: none;
             margin: 0;
-            padding: 0;
+            padding: 20px 10px 10px 20px;
             font-size: 16px;
             margin: 10px 0;
+            min-width: 220px;
+            max-width: 270px;
+            height: 400px;
+            overflow: hidden auto;
+            z-index: 1;
+        
+            border: 1px solid #0006;
+            border-right: 0;
+            border-bottom: 0;
+            border-radius: 10px 0 10px 0;
+            background-color: #0001;
+            box-shadow: inset 10px 20px 30px 0px #000;
         }
         #user-list li:not(:last-child) {
-            margin-bottom: 10px;
+            margin-bottom: 5px;
         }
+        
+        
+        #user-list .no-users {
+            text-align: center;
+            padding: 10px;
+            font-weight: bold;
+            color: #000c;
+            text-shadow:
+                -1px -1px 3px #fff3,
+                1px 2px 2px #0006,
+                1px 2px 10px #fff6;
+        }
+        
+        
         #user-list .user-item {
             display: block;
             position: relative;
             padding-right: 55px;
+            margin-top: 2px;
+/*             ! height: 45px; */
         }
         #user-list .user-item >* {
             display: inline-block;
             line-height: 20px;
             vertical-align: middle;
         }
-
-
+        
+        
         #user-list audio {
             display: none !important;
         }
-
-
+        
+        
         #user-list .light {
             position: relative;
-            --light-off-color: #ccc;
-            --light-on-color: #6f6;
-            --light-flash-color: #6f6;
-            width: 14px;
-            height: 14px;
-            border-radius: 14px;
-            border: 1px solid var(--light-off-color);
-            background-color: var(--light-off-color);
+            top: 2px;
+            width: 40px;
+            height: 40px;
+            background:
+                var(--light-off-image) center center / 40px 40px no-repeat;
+            opacity: 0.8;
         }
         #user-list .light.on {
-            background-color: var(--light-on-color);
+            background-image: var(--light-on-image);
         }
         @keyframes flashing{
-            0%  { background-color: var(--light-flash-color); }
-            49% { background-color: var(--light-flash-color); }
-            50% { background-color: var(--light-off-color); }
-            100%{ background-color: var(--light-off-color); }
+            0%  { background-image: var(--light-flash-image); }
+            49% { background-image: var(--light-flash-image); }
+            50% { background-image: var(--light-off-image); }
+            100%{ background-image: var(--light-off-image); }
         }
-        #user-list .light.flashing{
-            animation:flashing 1s infinite;
+        #user-list .light.flashing {
+            animation: flashing 1s infinite;
         }
-        #user-list .light.flashing::before {
+        #user-list .light.flashing:hover::before {
             display: block;
             position: absolute;
             white-space: nowrap;
-            content: "cancel";
-            font-size: 9px;
-            line-height: 9px;
-            top: -11px;
+            content: "click to cancel";
+            color: #fff;
+            font-size: 10px;
+            line-height: 10px;
+            top: -12px;
             left: 50%;
             transform: translateX(-50%);
-            height: 9px;
+            height: 10px;
+            border: 1px solid #fff;
+            background-color: #222;
+            padding: 2px;
         }
-
-
-        #user-list .toggle::before {
+        
+        
+        #user-list .toggle {
             display: inline-block;
-            content: "off";
-            width: 50px;
-            color: #fff;
-            background-color: #444;
-            text-align: center;
-            margin: 0 5px;
+            position: relative;
+            content:'';
+            width: 28px;
+            height: 50px;
+            background: var(--switch-off-image) center center / 28px 50px no-repeat;
         }
-        #user-list .toggle.on::before {
-            content: "on";
-            background-color: #f00;
+        #user-list .toggle.on {
+            background-image: var(--switch-on-image);
         }
-        #user-list .toggle.waiting::before {
-            content: "…";
-            background-color: #66f;
+        @keyframes waiting {
+            0%  { background-image: var(--switch-center-on-image); }
+            49% { background-image: var(--switch-center-on-image); }
+            50% { background-image: var(--switch-center-off-image); }
+            100%{ background-image: var(--switch-center-off-image); }
         }
-
-
+        #user-list .toggle.waiting {
+            /* animation: waiting 1s infinite; */
+            background-image: var(--switch-center-on-image)
+        }
+        
+        
+        #user-list .name {
+            font-weight: bold;
+            color: #000c;
+            text-shadow:
+                -1px -1px 3px #fff3,
+                1px 2px 2px #0006,
+                1px 2px 10px #fff6;
+        }
+        
+        
         #user-list .button {
             position: absolute;
+            top: 15px;
             right: 25px;
             width: 20px;
             height: 20px;
             border-radius: 20px;
-            border: 1px solid #888;
-            background-color: #888;
-            box-shadow: inset 2px 2px 3px -3px #fff;
+            border: 1px solid #555;
+            background-color: #222;
+            box-shadow:
+                inset 2px 6px 3px -3px #fff,
+                inset -2px -2px 3px -3px #fff;
+        }
+        #user-list .button.highlight {
+            background-color: #0c6;
         }
         #user-list .button.pressed {
-            box-shadow: inset 2px 2px 3px -2px #000;
+            border: 1px solid #444;
+            box-shadow:
+                inset 1px 2px 2px 2px #000,
+                inset 1px 3px 3px 1px #fff;
         }
         #user-list .button::before {
             display: inline-block;
             position: relative;
             content: "talk";
+            color: #222;
             font-size: 10px;
             line-height: 24px;
             height: 24px;
             top: -3px;
             left: -3px;
-            border: 1px solid #ccc;
+            border: 1px solid #ccc3;
+            border-right: 0px;
             border-radius: 20px 0 0 20px;
-            background-color: #eee;
+            background-color: #f7f7f730;
+            box-shadow: inset 18px 8px 10px -2px #000a;
             padding: 0 5px 0 26px;
             z-index: -1;
         }
+        
     </style>
 </head>
 <body>
 
-    <input id="name-input" type="text" placeholder="Enter User Name"/>
-    <ul id="user-list">
-        <li class="user-item" data-type="template">
-            <audio autoplay></audio>
-            <span class="light"></span>
-            <span class="toggle"></span>
-            <span class="name">UserName</span>
-            <span class="button"></span>
-        </li>
-        <li class="no-users" data-type="template">
-            No other users connected
-        </li>
-    </ul>
+    <div id="faceplate">
+        <input id="name-input" type="text" placeholder="Enter User Name"/>
+        <ul id="user-list">
+            <li class="user-item" data-type="template">
+                <audio autoplay></audio>
+                <span class="toggle"></span>
+                <span class="light"></span>
+                <span class="name">UserName</span>
+                <span class="button"></span>
+            </li>
+            <li class="no-users" data-type="template">
+                No other users connected
+            </li>
+            <li class="no-users">. . .</li>
+        </ul>
+    </div>
 
 
     <script>(async () => {
@@ -236,6 +384,8 @@ License: MIT
                     console.error(error)
                     nameInput.value = state.user.name = ''
                 })
+        } else {
+            nameInput.focus()
         }
 
 
@@ -282,8 +432,7 @@ License: MIT
             disableAudioTracks(localStream)
 
             userItem.toggle.wait()
-            userItem.button.onpress   = onPress
-            userItem.button.onrelease = onRelease
+            userItem.light.flash()
 
             const info = { name }
             Object.assign(info, await createOfferConnection(localStream, onTrack))
@@ -318,6 +467,11 @@ License: MIT
 
             function onOpen(event) {
                 userItem.toggle.enable()
+                userItem.light.cancelFlash()
+                userItem.light.enable()
+
+                userItem.button.onpress   = onPress
+                userItem.button.onrelease = onRelease
             }
 
             function onClose(event) {
@@ -333,11 +487,11 @@ License: MIT
                 switch (data) {
                     case "begin_talk":
                         info.isTalking = true
-                        if (userItem) userItem.light.enable()
+                        if (userItem) userItem.button.highlight()
                         break;
                     case "end_talk":
                         info.isTalking = false
-                        if (userItem) userItem.light.disable()
+                        if (userItem) userItem.button.unhighlight()
                         break;
                     default:
                         console.error(`Unknown data channel message received: "${data}"`)
@@ -346,12 +500,12 @@ License: MIT
 
             function onPress(event) {
                 enableAudioTracks(localStream)
-                dataChannel.send("begin_talk")
+                if (dataChannel) dataChannel.send("begin_talk")
             }
 
             function onRelease(event) {
                 disableAudioTracks(localStream)
-                dataChannel.send("end_talk")
+                if (dataChannel) dataChannel.send("end_talk")
             }
         }
 
@@ -366,9 +520,6 @@ License: MIT
             await disconnect(name)
             const localStream = inputAudioStream ? inputAudioStream.clone() : undefined
             disableAudioTracks(localStream)
-                        
-            userItem.button.onpress   = onPress
-            userItem.button.onrelease = onRelease
 
             const info = { name } // must exist before calling createAnswerConneciton (for onTrack)
             Object.assign(info, await createAnswerConnection(offer, localStream, onTrack, onDataChannel))
@@ -393,6 +544,10 @@ License: MIT
 
                 userItem.toggle.enable()
                 userItem.light.cancelFlash()
+                userItem.light.enable()
+
+                userItem.button.onpress   = onPress
+                userItem.button.onrelease = onRelease
                 
                 debugLog('Added remote WebRTC data channel')
             }
@@ -419,11 +574,11 @@ License: MIT
                 switch (data) {
                     case "begin_talk":
                         info.isTalking = true
-                        if (userItem) userItem.light.enable()
+                        if (userItem) userItem.button.highlight()
                         break;
                     case "end_talk":
                         info.isTalking = false
-                        if (userItem) userItem.light.disable()
+                        if (userItem) userItem.button.unhighlight()
                         break;
                     default:
                         console.error(`Unknown data channel message received: "${data}"`)
@@ -459,6 +614,7 @@ License: MIT
                 if (userItem) {
                     userItem.toggle.disable()
                     userItem.light.cancelFlash()
+                    userItem.light.disable()
                     userItem.audio.srcObject  = undefined
                     userItem.button.onpress   = undefined
                     userItem.button.onrelease = undefined
@@ -600,7 +756,7 @@ License: MIT
                 const user = users[index]
                 user.userItem = userItem
 
-                const { audio, light, toggle, button } = userItem
+                const { audio, light, toggle, name, button } = userItem
                 let info = state.connections[user.name]
                 let {
                     connection,
@@ -613,17 +769,20 @@ License: MIT
                 audio.srcObject  = remoteStream
                 light.onclick    = onLightClick
                 toggle.onclick   = onToggleClick
-                button.onpress   = onButtonPress
-                button.onrelease = onButtonRelease
+                name.onclick     = onNameClick
 
-                if (isTalking) light.enable()
+                if (isTalking) button.highlight()
 
                 if (offer) {
                     if (connection) {
                         if (answer) {
                             toggle.enable()
+                            light.enable()
+                            button.onpress   = onButtonPress
+                            button.onrelease = onButtonRelease
                         } else {
                             toggle.wait()
+                            light.flash()
                         }
                     } else {
                         light.flash()
@@ -643,18 +802,22 @@ License: MIT
                         // Connected: Disconnect
                         disconnect(user.name)
                         if (connection && offer && !answer) {
-                            // Other user hasn't accept connection offer
+                            // Other user hasn't accepted connection offer
                             sendMessage({ id: state.user.id, reject: user.name })
                         }
                     }
                 }
 
                 function onLightClick() {
-                    let { connection, offer } = state.connections[user.name] || {}
-                    if (offer && !connection) {
+                    let { connection, offer, answer } = state.connections[user.name] || {}
+                    if (offer && !answer) {
                         disconnect(user.name)
                         sendMessage({ id: state.user.id, reject: user.name })
                     }
+                }
+
+                function onNameClick() {
+                    if (!toggle.isEnabled()) onToggleClick()
                 }
 
                 function onButtonPress(event) {
@@ -790,6 +953,9 @@ License: MIT
             button.onmouseout  = function() { this.classList.remove('pressed'); if (this.onrelease) this.onrelease() }
             button.onpress     = undefined
             button.onrelease   = undefined
+            button.isHighlighted = function() { return this.classList.contains('highlight') }
+            button.highlight     = function() { return this.classList.add('highlight') }
+            button.unhighlight   = function() { return this.classList.remove('highlight') }
             
             light.isEnabled    = function() { return this.classList.contains('on') }
             light.enable       = function() { this.classList.add('on') }
