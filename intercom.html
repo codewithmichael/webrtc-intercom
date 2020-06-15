@@ -50,6 +50,32 @@ License: MIT
             --talk-light-on-image: url('assets/talk-light-on.png');
         }
 
+
+        #textures {
+            width: 0;
+            height: 0;
+            overflow: hidden;
+            background-image:
+                var(--faceplate-image),
+                var(--faceplate-holes-image),
+
+                var(--light-off-image),
+                var(--light-on-image),
+                var(--light-flash-image),
+
+                var(--switch-on-image),
+                var(--switch-off-image),
+                var(--switch-center-on-image),
+                var(--switch-center-off-image),
+
+                var(--connected-light-off-image),
+                var(--connected-light-on-image),
+
+                var(--talk-light-off-image),
+                var(--talk-light-on-image);
+        }
+
+
         * {
             font-family: Arial, Helvetica, sans-serif;
             user-select: none;
@@ -397,10 +423,34 @@ License: MIT
             background-image: var(--talk-light-on-image)
         }
 
+
+        #copyright {
+            display: block;
+            position: absolute;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            white-space: nowrap;
+            color: #222;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: -1;
+            opacity: 0.5;
+        }
+        #copyright:hover{
+            opacity: 1;
+        }
+        a {
+            text-decoration: none;
+            color: #0064f0;
+        }
+
     </style>
 </head>
 <body>
 
+    <div id="textures"></div>
     <div id="faceplate">
         <input id="name-input" type="text" placeholder="Enter User Name"/>
         <ul id="user-list">
@@ -416,6 +466,10 @@ License: MIT
         </ul>
         <span id="connected-light"></span>
         <span id="talk-light"></span>
+    </div>
+    <div id="copyright">
+        WebRTC Intercom / Fork on <a href="https://github.com/codewithmichael/webrtc-intercom">GitHub</a><br/>
+        MIT License - Copyright © 2020 Michael Spencer<br/>
     </div>
 
 
@@ -600,11 +654,14 @@ License: MIT
                     case "begin_talk":
                         info.isTalking = true
                         if (userItem) userItem.button.highlight()
-                        break;
+                        break
                     case "end_talk":
                         info.isTalking = false
                         if (userItem) userItem.button.unhighlight()
-                        break;
+                        break
+                    case "disconnect":
+                        disconnect(name)
+                        break
                     default:
                         console.error(`Unknown data channel message received: "${data}"`)
                 }
@@ -688,11 +745,14 @@ License: MIT
                     case "begin_talk":
                         info.isTalking = true
                         if (userItem) userItem.button.highlight()
-                        break;
+                        break
                     case "end_talk":
                         info.isTalking = false
                         if (userItem) userItem.button.unhighlight()
-                        break;
+                        break
+                    case "disconnect":
+                        disconnect(name)
+                        break
                     default:
                         console.error(`Unknown data channel message received: "${data}"`)
                 }
@@ -730,6 +790,7 @@ License: MIT
                     localStream,
                     remoteStream
                 } = info
+                if (dataChannel) sendDataChannelMessage(dataChannel, 'disconnect')
                 if (userItem) {
                     userItem.toggle.disable()
                     userItem.light.disable()
@@ -1040,19 +1101,19 @@ License: MIT
             nameInput.onkeydown = onNameInputKeyDown
 
             connectedLight.isEnabled    = function() { return this.classList.contains('on') }
-            connectedLight.enable       = function() { this.cancelFlash(); this.classList.add('on') }
-            connectedLight.disable      = function() { this.cancelFlash(); this.classList.remove('on') }
+            connectedLight.enable       = function() { this.classList.add('on'); this.cancelFlash() }
+            connectedLight.disable      = function() { this.classList.remove('on'); this.cancelFlash() }
             connectedLight.toggle       = function() { this.isEnabled() ? this.disable() : this.enable() }
             connectedLight.isFlashing   = function() { return this.classList.contains('flashing') }
-            connectedLight.flash        = function() { this.classList.remove('on'); this.classList.add('flashing') }
+            connectedLight.flash        = function() { this.classList.add('flashing'); this.classList.remove('on') }
             connectedLight.cancelFlash  = function() { this.classList.remove('flashing') }
 
             talkLight.isEnabled         = function() { return this.classList.contains('on') }
-            talkLight.enable            = function() { this.cancelFlash(); this.classList.add('on') }
-            talkLight.disable           = function() { this.cancelFlash(); this.classList.remove('on') }
+            talkLight.enable            = function() { this.classList.add('on'); this.cancelFlash() }
+            talkLight.disable           = function() { this.classList.remove('on'); this.cancelFlash() }
             talkLight.toggle            = function() { this.isEnabled() ? this.disable() : this.enable() }
             talkLight.isFlashing        = function() { return this.classList.contains('flashing') }
-            talkLight.flash             = function() { this.classList.remove('on'); this.classList.add('flashing') }
+            talkLight.flash             = function() { this.classList.add('flashing'); this.classList.remove('on') }
             talkLight.cancelFlash       = function() { this.classList.remove('flashing') }
 
             return {
@@ -1105,9 +1166,9 @@ License: MIT
             toggle.isEnabled   = function() { return this.classList.contains('on') }
             toggle.isWaiting   = function() { return this.classList.contains('waiting') }
             toggle.isDisabled  = function() { return !this.isEnabled() && !this.isWaiting() }
-            toggle.enable      = function() { if (this.isEnabled()) return; this.classList.remove('waiting'); this.classList.add('on'); if (this.onenable) this.onenable() }
+            toggle.enable      = function() { if (this.isEnabled()) return; this.classList.add('on'); this.classList.remove('waiting'); if (this.onenable) this.onenable() }
             toggle.disable     = function() { if (!this.isEnabled() && !this.isWaiting()) return; this.classList.remove('on', 'waiting'); if (this.ondisable) this.ondisable() }
-            toggle.wait        = function() { if (this.isWaiting()) return; this.classList.remove('on'); this.classList.add('waiting'); if (this.onwait) this.onwait() }
+            toggle.wait        = function() { if (this.isWaiting()) return; this.classList.add('waiting'); this.classList.remove('on'); if (this.onwait) this.onwait() }
             toggle.onenable    = undefined
             toggle.ondisable   = undefined
             toggle.onwait      = undefined
@@ -1123,11 +1184,11 @@ License: MIT
             button.unhighlight   = function() { return this.classList.remove('highlight') }
             
             light.isEnabled    = function() { return this.classList.contains('on') }
-            light.enable       = function() { this.cancelFlash(); this.classList.add('on') }
-            light.disable      = function() { this.cancelFlash(); this.classList.remove('on') }
+            light.enable       = function() { this.classList.add('on'); this.cancelFlash() }
+            light.disable      = function() { this.classList.remove('on'); this.cancelFlash() }
             light.toggle       = function() { this.isEnabled() ? this.disable() : this.enable() }
             light.isFlashing   = function() { return this.classList.contains('flashing') }
-            light.flash        = function() { this.classList.remove('on'); this.classList.add('flashing') }
+            light.flash        = function() { this.classList.add('flashing'); this.classList.remove('on') }
             light.cancelFlash  = function() { this.classList.remove('flashing') }
 
             Object.assign(userItem, { audio, name, button, toggle, light })
