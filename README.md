@@ -86,6 +86,9 @@ Once connected to a user, press-and-hold the black "talk" button next to their
 name to talk to them. While you're talking, the large blue light in the bottom
 right corner will light up to let you know your sending audio.
 
+You can also press the large blue talk light to broadcast a message to all
+users which whom you are currently connected.
+
 When a connected user is talking to you, the black "talk" button next to their
 name will light up in green to designate the speaker.
 
@@ -255,9 +258,13 @@ application.
 
 **Q: Can I broadcast a message to everyone at the same time?**
 
-Not at the moment.
+Yes.
 
-I'll probably add a broadcast feature to the blue talk light.
+Press and hold the blue talk light in the bottom left corner to broadcast
+a message to all current connections.
+
+Note: If it doesn't light up, make sure you are first connected with at least
+one other user.
 
 **Q: Can I type a message?**
 

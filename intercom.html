@@ -419,8 +419,27 @@ License: MIT
             height: 91px;
             background: var(--talk-light-off-image) top left / 91px 91px no-repeat;
         }
+        #talk-light:hover::before {
+            display: block;
+            position: absolute;
+            white-space: nowrap;
+            content: "press and hold to broadcast";
+            color: #fff;
+            font-size: 10px;
+            line-height: 10px;
+            top: -2px;
+            left: 50%;
+            transform: translateX(-50%);
+            height: 10px;
+            border: 1px solid #fff;
+            background-color: #222;
+            padding: 2px;
+        }
         #talk-light.on {
             background-image: var(--talk-light-on-image)
+        }
+        #talk-light.on:hover::before {
+            display: none;
         }
 
 
@@ -501,7 +520,7 @@ License: MIT
         let state = this.state = {
             user: { name: DEFAULT_USERNAME },
             users: [],
-            connections: {}  // { <key=user_name>: { connection, dataChannel, localStream, remoteStream, offer, answer }}
+            connections: {}  // { <key=user_name>: { connection, dataChannel, localStream, remoteStream, offer, answer, connected:boolean }}
         }
         
         // Mute microphone by default
@@ -552,6 +571,35 @@ License: MIT
                 // Trigger a name registration attempt
                 nameInput.onblur()
             }
+        }
+
+        // Broadcast
+        talkLight.onpress = function() {
+            if (!state.user.id) return
+            let activeConnections = Object.keys(state.connections)
+            .map(name => state.connections[name])
+            .filter(info => !!info.connected)
+            if (!activeConnections.length) return
+            let isBroadcasting = false
+            for ( let info of activeConnections) {
+                let { localStream, dataChannel } = info
+                if (!localStream) continue
+                enableAudioTracks(localStream)
+                if (dataChannel) sendDataChannelMessage(dataChannel, "begin_talk")
+                isBroadcasting = true
+            }
+            if (isBroadcasting) talkLight.enable()
+        }
+        talkLight.onrelease = function() {
+            Object.keys(state.connections)
+                .map(name => state.connections[name])
+                .forEach(info => {
+                    let { localStream, dataChannel } = info
+                    if (!localStream) return
+                    disableAudioTracks(localStream)
+                    if (dataChannel) sendDataChannelMessage(dataChannel, "end_talk")
+                })
+            talkLight.disable()
         }
 
 
@@ -633,11 +681,15 @@ License: MIT
             }
 
             function onOpen(event) {
+                info.connected = true
+
                 userItem.toggle.enable()
                 userItem.light.enable()
 
                 userItem.button.onpress   = onPress
                 userItem.button.onrelease = onRelease
+
+                debugLog(`Connection established with user: ${name}`)
             }
 
             function onClose(event) {
@@ -668,15 +720,16 @@ License: MIT
             }
 
             function onPress(event) {
+                if (!info.connected) return
                 enableAudioTracks(localStream)
                 talkLight.enable()
-                if (dataChannel) dataChannel.send("begin_talk")
+                if (dataChannel) sendDataChannelMessage(dataChannel, "begin_talk")
             }
 
             function onRelease(event) {
                 disableAudioTracks(localStream)
                 talkLight.disable()
-                if (dataChannel) dataChannel.send("end_talk")
+                if (dataChannel) sendDataChannelMessage(dataChannel, "end_talk")
             }
         }
 
@@ -712,14 +765,17 @@ License: MIT
                 info.dataChannel = event.channel
                 info.dataChannel.onclose = onClose
                 info.dataChannel.onmessage = onMessage
-
+                
+                info.connected = true
+                
                 userItem.toggle.enable()
                 userItem.light.enable()
-
+                
                 userItem.button.onpress   = onPress
                 userItem.button.onrelease = onRelease
                 
                 debugLog('Added remote WebRTC data channel')
+                debugLog(`Connection established with user: ${name}`)
             }
 
             function onTrack(event) {
@@ -759,21 +815,22 @@ License: MIT
             }
 
             function onPress(event) {
-                let { localStream, dataChannel } = info || {}
+                if (!info.connected) return
+                let { localStream, dataChannel } = info
                 if (localStream) {
                     enableAudioTracks(localStream)
                     talkLight.enable()
                 }
                 if (dataChannel) {
-                    dataChannel.send("begin_talk")
+                    sendDataChannelMessage(dataChannel, "begin_talk")
                 }
             }
 
             function onRelease(event) {
-                let { localStream, dataChannel } = info || {}
+                let { localStream, dataChannel } = info
                 if (localStream) disableAudioTracks(localStream)
                 talkLight.disable()
-                if (dataChannel) dataChannel.send("end_talk")
+                if (dataChannel) sendDataChannelMessage(dataChannel, "end_talk")
             }
         }
 
@@ -788,9 +845,10 @@ License: MIT
                     connection,
                     dataChannel,
                     localStream,
-                    remoteStream
+                    remoteStream,
+                    connected,
                 } = info
-                if (dataChannel) sendDataChannelMessage(dataChannel, 'disconnect')
+                if (connected && dataChannel) sendDataChannelMessage(dataChannel, 'disconnect')
                 if (userItem) {
                     userItem.toggle.disable()
                     userItem.light.disable()
@@ -1022,14 +1080,14 @@ License: MIT
                         enableAudioTracks(localStream)
                         talkLight.enable()
                     }
-                    if (dataChannel) dataChannel.send("begin_talk")
+                    if (dataChannel) sendDataChannelMessage(dataChannel, "begin_talk")
                 }
 
                 function onButtonRelease(event) {
                     let { localStream, dataChannel } = state.connections[user.name] || {}
                     if (localStream) disableAudioTracks(localStream)
                     talkLight.disable()
-                    if (dataChannel) dataChannel.send("end_talk")
+                    if (dataChannel) sendDataChannelMessage(dataChannel, "end_talk")
                 }
             })
         }
@@ -1115,6 +1173,12 @@ License: MIT
             talkLight.isFlashing        = function() { return this.classList.contains('flashing') }
             talkLight.flash             = function() { this.classList.add('flashing'); this.classList.remove('on') }
             talkLight.cancelFlash       = function() { this.classList.remove('flashing') }
+            talkLight.isPressed         = function() { return this.classList.contains('pressed') }
+            talkLight.onmousedown       = function() { this.classList.add('pressed'); if (this.onpress) this.onpress() }
+            talkLight.onmouseup         =
+            talkLight.onmouseout        = function() { this.classList.remove('pressed'); if (this.onrelease) this.onrelease() }
+            talkLight.onpress           = undefined
+            talkLight.onrelease         = undefined
 
             return {
                 templates,
